@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en" class="h-full">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Code Sync – Home</title>
+
+    <!-- Tailwind via CDN (production can swap to build pipeline) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            boxShadow: {
+              glass: "0 10px 30px rgba(0,0,0,0.25)",
+            },
+            backdropBlur: {
+              glass: "14px",
+            },
+          },
+        },
+      };
+    </script>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+
+    <style>
+      html,
+      body {
+        height: 100%;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial,
+          "Apple Color Emoji", "Segoe UI Emoji";
+      }
+
+      .glass {
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        backdrop-filter: blur(14px);
+      }
+
+      .glass-light {
+        background: rgba(255, 255, 255, 0.7);
+        border: 1px solid rgba(0, 0, 0, 0.08);
+        backdrop-filter: blur(14px);
+      }
+
+      .fade-in {
+        animation: fadeIn 180ms ease-out both;
+      }
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+          transform: translateY(6px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      .btn-run {
+        transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease;
+      }
+      .btn-run:active {
+        transform: translateY(1px) scale(0.99);
+      }
+
+      .resize-y {
+        cursor: row-resize;
+      }
+
+      .monaco-container {
+        position: relative;
+        width: 100%;
+        height: 100%;
+      }
+
+      /* Simple command palette */
+      .kbd {
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        background: rgba(255, 255, 255, 0.08);
+        padding: 2px 6px;
+        border-radius: 8px;
+        font-size: 12px;
+      }
+      .light .kbd {
+        border-color: rgba(0, 0, 0, 0.12);
+        background: rgba(255, 255, 255, 0.65);
+      }
+    </style>
+  </head>
+
+  <body class="h-full bg-slate-950 text-slate-100 dark">
+    <div class="min-h-full flex items-center justify-center p-6">
+      <div class="w-full max-w-2xl glass rounded-3xl p-6 shadow-glass border border-white/10">
+        <div class="flex items-center gap-3">
+          <div class="h-12 w-12 rounded-2xl bg-gradient-to-br from-indigo-500 to-cyan-400 shadow-glass"></div>
+          <div>
+            <div class="text-xl font-bold">Code Sync</div>
+            <div class="text-sm text-slate-300">Create or join a room to collaborate in real time.</div>
+          </div>
+        </div>
+
+        <div class="mt-6 grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div class="md:col-span-2">
+            <label class="text-xs text-slate-300">Your name</label>
+            <div class="mt-1 flex gap-2">
+              <input
+                id="homeName"
+                class="flex-1 rounded-2xl px-4 py-3 text-sm bg-transparent border border-white/10 outline-none"
+                placeholder="e.g. Mayank"
+              />
+              <button
+                id="randomNameBtn"
+                class="rounded-2xl px-4 py-3 text-sm glass hover:bg-white/10 border border-white/10"
+                type="button"
+              >
+                Random
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label class="text-xs text-slate-300">Role</label>
+            <select
+              id="homeRole"
+              class="mt-1 w-full rounded-2xl px-4 py-3 text-sm bg-transparent border border-white/10 outline-none"
+            >
+              <option value="editor">Editor</option>
+              <option value="viewer">Viewer</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div class="md:col-span-2">
+            <label class="text-xs text-slate-300">Room ID (for join)</label>
+            <input
+              id="homeRoom"
+              class="mt-1 w-full rounded-2xl px-4 py-3 text-sm bg-transparent border border-white/10 outline-none"
+              placeholder="Paste room id…"
+            />
+          </div>
+          <div class="flex items-end">
+            <button
+              id="joinRoomBtn"
+              class="w-full rounded-2xl px-4 py-3 text-sm font-semibold bg-indigo-500/90 hover:bg-indigo-500 shadow-glass"
+              type="button"
+            >
+              Join room
+            </button>
+          </div>
+        </div>
+
+        <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+          <button
+            id="createRoomBtn"
+            class="rounded-2xl px-4 py-3 text-sm font-semibold bg-emerald-500/90 hover:bg-emerald-500 shadow-glass"
+            type="button"
+          >
+            Create new room
+          </button>
+          <a
+            href="/compiler"
+            class="rounded-2xl px-4 py-3 text-sm font-semibold glass hover:bg-white/10 border border-white/10 text-center"
+          >
+            Open compiler (solo)
+          </a>
+        </div>
+
+        <div class="mt-4 text-xs text-slate-300 flex items-center justify-between">
+          <div>Tip: Share the room link once inside.</div>
+          <button
+            id="themeBtn"
+            class="rounded-2xl px-3 py-2 text-xs glass hover:bg-white/10 border border-white/10"
+            type="button"
+          >
+            Theme
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div id="toasts" class="fixed bottom-4 right-4 space-y-2 z-50"></div>
+    <script src="/static/home.js"></script>
+  </body>
+</html>
