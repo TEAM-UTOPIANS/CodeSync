@@ -1,7 +1,15 @@
 import secrets
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, TypedDict
+
+
+class FileState(TypedDict):
+    path: str
+    content: str
+    rev: int
+    # ops history after each revision (for OT transform); bounded for memory
+    ops: List[Dict[str, Any]]
 
 
 @dataclass
@@ -10,8 +18,8 @@ class RoomState:
     created_at: float
     host_sid: str
     # collaborative state
-    code: str
     language: str
+    files: Dict[str, FileState]  # path -> file state
     users: Dict[str, Dict[str, Any]]  # sid -> {name, role, color, cursor}
     chat: list  # persisted in-memory for demo; can move to Redis/db
 
@@ -32,8 +40,10 @@ class RoomService:
             room_id=room_id,
             created_at=time.time(),
             host_sid="",
-            code="",
             language="python",
+            files={
+                "main": {"path": "main", "content": "", "rev": 0, "ops": []},
+            },
             users={},
             chat=[],
         )
@@ -51,8 +61,10 @@ class RoomService:
                 room_id=room_id,
                 created_at=time.time(),
                 host_sid="",
-                code="",
                 language="python",
+                files={
+                    "main": {"path": "main", "content": "", "rev": 0, "ops": []},
+                },
                 users={},
                 chat=[],
             )

@@ -8,6 +8,55 @@ from backend.services.room_service import RoomService
 from backend.utils.helpers import safe_str
 
 
+def _apply_ops(text: str, ops: list[dict]) -> str:
+    # ops are applied in order; positions refer to current text at time of application
+    for op in ops:
+        pos = int(op.get("pos", 0))
+        delete = int(op.get("del", 0))
+        ins = str(op.get("ins", ""))
+        pos = max(0, min(len(text), pos))
+        if delete:
+            delete = max(0, min(len(text) - pos, delete))
+            text = text[:pos] + text[pos + delete :]
+        if ins:
+            text = text[:pos] + ins + text[pos:]
+    return text
+
+
+def _transform(a: dict, b: dict) -> dict:
+    """
+    Transform op a against op b (b happened before a).
+    op: {pos, del, ins}
+    This is a simple text OT transform sufficient for single-line edits / Monaco change events.
+    """
+    a_pos, a_del, a_ins = int(a["pos"]), int(a.get("del", 0)), str(a.get("ins", ""))
+    b_pos, b_del, b_ins = int(b["pos"]), int(b.get("del", 0)), str(b.get("ins", ""))
+
+    # If b inserts before a, shift a right
+    if b_ins:
+        if b_pos < a_pos or (b_pos == a_pos and not a_ins):
+            a_pos += len(b_ins)
+
+    # If b deletes before a, shift a left; handle overlap
+    if b_del:
+        b_end = b_pos + b_del
+        if b_end <= a_pos:
+            a_pos -= b_del
+        elif b_pos < a_pos < b_end:
+            # a starts inside deleted range; clamp to deletion start
+            a_pos = b_pos
+        # If a deletes overlapping b's deletion, shrink a's delete
+        if a_del:
+            a_end = a_pos + a_del
+            # compute overlap in original coordinate space (approx)
+            overlap_start = max(a_pos, b_pos)
+            overlap_end = min(a_end, b_end)
+            if overlap_end > overlap_start:
+                a_del = max(0, a_del - (overlap_end - overlap_start))
+
+    return {"pos": a_pos, "del": a_del, "ins": a_ins}
+
+
 def register_socket_handlers(socketio: SocketIO) -> None:
     @socketio.on("room:join")
     def room_join(payload: Dict[str, Any]):
@@ -43,8 +92,8 @@ def register_socket_handlers(socketio: SocketIO) -> None:
                 "roomId": room_id,
                 "me": room.users[sid],
                 "hostSid": room.host_sid,
-                "code": room.code,
                 "language": room.language,
+                "files": list(room.files.values()),
                 "users": list(room.users.values()),
                 "chat": room.chat[-200:],
             },
@@ -94,11 +143,28 @@ def register_socket_handlers(socketio: SocketIO) -> None:
             if sid in room.users:
                 _leave_room_internal(room_id)
 
-    @socketio.on("editor:code")
-    def editor_code(payload: Dict[str, Any]):
+    @socketio.on("file:create")
+    def file_create(payload: Dict[str, Any]):
         room_id = safe_str(payload.get("roomId", ""))
-        code = payload.get("code", "")
-        version = int(payload.get("version", 0))
+        path = safe_str(payload.get("path", ""), max_len=128)
+        room = RoomService.get_room(room_id)
+        if not room or not path:
+            return
+        sid = request.sid
+        user = room.users.get(sid)
+        if not user or user["role"] == "viewer":
+            return
+        if path in room.files:
+            return
+        room.files[path] = {"path": path, "content": "", "rev": 0, "ops": []}
+        emit("file:created", {"file": room.files[path]}, room=room_id)
+
+    @socketio.on("editor:op")
+    def editor_op(payload: Dict[str, Any]):
+        room_id = safe_str(payload.get("roomId", ""))
+        path = safe_str(payload.get("path", "main"), max_len=128) or "main"
+        base_rev = int(payload.get("baseRev", 0))
+        ops = payload.get("ops") or []
         room = RoomService.get_room(room_id)
         if not room:
             return
@@ -106,10 +172,44 @@ def register_socket_handlers(socketio: SocketIO) -> None:
         user = room.users.get(sid)
         if not user or user["role"] == "viewer":
             return
+        file = room.files.get(path)
+        if not file:
+            room.files[path] = {"path": path, "content": "", "rev": 0, "ops": []}
+            file = room.files[path]
 
-        # naive last-write-wins; for production, add OT/CRDT. This keeps UI responsive.
-        room.code = str(code)
-        emit("editor:code", {"code": room.code, "version": version, "fromSid": sid}, room=room_id, include_self=False)
+        # transform incoming ops against history since base_rev
+        history = file["ops"]
+        current_rev = int(file["rev"])
+        if base_rev < 0:
+            base_rev = 0
+        if base_rev > current_rev:
+            base_rev = current_rev
+
+        transformed_ops: list[dict] = []
+        for op in ops:
+            t = {"pos": int(op.get("pos", 0)), "del": int(op.get("del", 0)), "ins": str(op.get("ins", ""))}
+            for h in history[base_rev:]:
+                t = _transform(t, h)
+            transformed_ops.append(t)
+            # update history as we go so subsequent ops transform correctly
+            history.append(t)
+            current_rev += 1
+
+        # apply to authoritative content
+        file["content"] = _apply_ops(file["content"], transformed_ops)
+        file["rev"] = current_rev
+        # bound ops history to last N ops; adjust rev window by trimming from front
+        max_ops = 2000
+        if len(history) > max_ops:
+            trim = len(history) - max_ops
+            del history[:trim]
+            # we also need to clamp rev base expectations; clients will resync via full file if too old
+        emit(
+            "editor:op",
+            {"path": path, "baseRev": base_rev, "ops": transformed_ops, "rev": file["rev"], "fromSid": sid},
+            room=room_id,
+            include_self=False,
+        )
 
     @socketio.on("editor:cursor")
     def editor_cursor(payload: Dict[str, Any]):

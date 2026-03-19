@@ -2,20 +2,50 @@
 
 const $ = (id) => document.getElementById(id);
 
+// ---- OT helpers (pos-based ops) ----
+// Op: {pos:number, del:number, ins:string}
+function transform(a, b) {
+  let aPos = a.pos;
+  let aDel = a.del || 0;
+  const aIns = a.ins || "";
+  const bPos = b.pos;
+  const bDel = b.del || 0;
+  const bIns = b.ins || "";
+
+  if (bIns) {
+    if (bPos < aPos || (bPos === aPos && !aIns)) aPos += bIns.length;
+  }
+
+  if (bDel) {
+    const bEnd = bPos + bDel;
+    if (bEnd <= aPos) aPos -= bDel;
+    else if (bPos < aPos && aPos < bEnd) aPos = bPos;
+
+    if (aDel) {
+      const aEnd = aPos + aDel;
+      const overlapStart = Math.max(aPos, bPos);
+      const overlapEnd = Math.min(aEnd, bEnd);
+      if (overlapEnd > overlapStart) aDel = Math.max(0, aDel - (overlapEnd - overlapStart));
+    }
+  }
+
+  return { pos: aPos, del: aDel, ins: aIns };
+}
+
 const state = {
   socket: null,
   roomId: null,
   me: null,
   users: new Map(), // sid -> user
   editor: null,
-  model: null,
   theme: "dark",
   language: "python",
-  codeVersion: 0,
-  applyingRemote: false,
   cursorDecorations: new Map(), // sid -> decorationIds
   execHistory: [],
   lastMarkers: [],
+
+  files: new Map(), // path -> {path, model, rev, pending, applying, sub}
+  activePath: "main",
 };
 
 const COLORS = ["#60a5fa", "#f472b6", "#34d399", "#fbbf24", "#a78bfa", "#fb7185", "#22c55e", "#38bdf8"];
@@ -58,9 +88,7 @@ function setTheme(next) {
   document.body.classList.toggle("text-slate-950", next !== "dark");
   document.body.classList.toggle("light", next !== "dark");
 
-  if (state.editor) {
-    monaco.editor.setTheme(next === "dark" ? "codesync-dark" : "vs");
-  }
+  if (state.editor) monaco.editor.setTheme(next === "dark" ? "codesync-dark" : "vs");
 }
 
 function getRoomIdFromUrl() {
@@ -153,13 +181,17 @@ function setSyncStatus(text) {
 
 function clearMarkers() {
   if (!state.editor) return;
-  monaco.editor.setModelMarkers(state.model, "codesync", []);
+  const f = state.files.get(state.activePath);
+  if (!f) return;
+  monaco.editor.setModelMarkers(f.model, "codesync", []);
   state.lastMarkers = [];
 }
 
 function setErrorMarkersFromStderr(stderr) {
   // Heuristic: parse "line X, col Y" from MiniLang errors
   if (!state.editor) return;
+  const f = state.files.get(state.activePath);
+  if (!f) return;
   const markers = [];
   const m = /line\s+(\d+),\s*col\s+(\d+)/i.exec(stderr || "");
   if (m) {
@@ -183,7 +215,7 @@ function setErrorMarkersFromStderr(stderr) {
       endColumn: 1,
     });
   }
-  monaco.editor.setModelMarkers(state.model, "codesync", markers);
+  monaco.editor.setModelMarkers(f.model, "codesync", markers);
   state.lastMarkers = markers;
 }
 
@@ -192,9 +224,10 @@ function outputWrite(text) {
 }
 
 async function runCode() {
-  if (!state.model) return;
+  const f = state.files.get(state.activePath);
+  if (!f) return;
   clearMarkers();
-  const code = state.model.getValue();
+  const code = f.model.getValue();
   const stdin = $("stdin").value || "";
   const language = $("languageSelect").value;
   state.language = language;
@@ -279,9 +312,13 @@ function ensureSocket() {
     setRoomIdInUrl(state.roomId);
     renderUsers();
 
-    state.applyingRemote = true;
-    if (typeof payload.code === "string" && state.model) state.model.setValue(payload.code);
-    state.applyingRemote = false;
+    const files = payload.files || [{ path: "main", content: "", rev: 0 }];
+    for (const file of files) {
+      ensureFileModel(file.path || "main", file.content || "", Number(file.rev || 0));
+    }
+    renderTabs();
+    if (!state.files.has(state.activePath)) state.activePath = files[0]?.path || "main";
+    setActiveFile(state.activePath);
 
     if (payload.language) {
       $("languageSelect").value = payload.language;
@@ -331,12 +368,17 @@ function ensureSocket() {
     toast("info", `Language set to ${language}`);
   });
 
-  sock.on("editor:code", ({ code, fromSid }) => {
-    if (!state.model) return;
+  sock.on("file:created", ({ file }) => {
+    if (!file?.path) return;
+    ensureFileModel(file.path, file.content || "", Number(file.rev || 0));
+    renderTabs();
+    toast("success", `File created: ${file.path}`);
+  });
+
+  sock.on("editor:op", ({ path, ops, fromSid }) => {
+    if (!path || !Array.isArray(ops)) return;
     if (fromSid && fromSid === state.me?.sid) return;
-    state.applyingRemote = true;
-    state.model.setValue(code || "");
-    state.applyingRemote = false;
+    applyRemoteOps(path, ops);
     setSyncStatus("Synced");
     setTimeout(() => setSyncStatus("Connected"), 700);
   });
@@ -377,11 +419,12 @@ function sendChat() {
 }
 
 function setEditorLanguage(lang) {
-  if (!state.model) return;
-  if (lang === "minilang") monaco.editor.setModelLanguage(state.model, "minilang");
-  else if (lang === "cpp") monaco.editor.setModelLanguage(state.model, "cpp");
-  else if (lang === "java") monaco.editor.setModelLanguage(state.model, "java");
-  else monaco.editor.setModelLanguage(state.model, "python");
+  const f = state.files.get(state.activePath);
+  if (!f) return;
+  if (lang === "minilang") monaco.editor.setModelLanguage(f.model, "minilang");
+  else if (lang === "cpp") monaco.editor.setModelLanguage(f.model, "cpp");
+  else if (lang === "java") monaco.editor.setModelLanguage(f.model, "java");
+  else monaco.editor.setModelLanguage(f.model, "python");
 }
 
 function clearRemoteCursor(sid) {
@@ -507,11 +550,13 @@ function setupCommandPalette() {
 }
 
 function saveLocal() {
-  if (!state.model) return;
+  const f = state.files.get(state.activePath);
+  if (!f) return;
   const payload = {
     roomId: state.roomId,
     language: $("languageSelect").value,
-    code: state.model.getValue(),
+    files: [...state.files.values()].map((x) => ({ path: x.path, content: x.model.getValue() })),
+    activePath: state.activePath,
     stdin: $("stdin").value || "",
     ts: Date.now(),
   };
@@ -526,7 +571,12 @@ function restoreLocal() {
     const p = JSON.parse(raw);
     if (p.language) $("languageSelect").value = p.language;
     if (p.stdin) $("stdin").value = p.stdin;
-    if (p.code && state.model) state.model.setValue(p.code);
+    if (Array.isArray(p.files)) {
+      for (const file of p.files) {
+        if (file?.path && typeof file.content === "string") ensureFileModel(file.path, file.content, 0);
+      }
+    }
+    if (p.activePath) state.activePath = p.activePath;
     toast("info", "Restored local draft");
   } catch {
     // ignore
@@ -534,11 +584,12 @@ function restoreLocal() {
 }
 
 function exportProject() {
-  if (!state.model) return;
+  const f = state.files.get(state.activePath);
+  if (!f) return;
   const payload = {
     roomId: state.roomId,
     language: $("languageSelect").value,
-    files: [{ path: "main", content: state.model.getValue() }],
+    files: [...state.files.values()].map((x) => ({ path: x.path, content: x.model.getValue() })),
     stdin: $("stdin").value || "",
     history: state.execHistory,
   };
@@ -593,16 +644,6 @@ function setupShare() {
 }
 
 function setupEditorSync() {
-  state.model.onDidChangeContent(() => {
-    if (state.applyingRemote) return;
-    saveLocal();
-    if (!state.roomId) return;
-    if (state.me?.role === "viewer") return;
-    state.codeVersion += 1;
-    ensureSocket().emit("editor:code", { roomId: state.roomId, code: state.model.getValue(), version: state.codeVersion });
-    setSyncStatus("Syncing...");
-  });
-
   state.editor.onDidChangeCursorPosition((e) => {
     if (!state.roomId) return;
     ensureSocket().emit("editor:cursor", {
@@ -633,6 +674,100 @@ function setupUi() {
     const roomId = rid && rid !== "—" ? rid : prompt("Enter room ID");
     if (roomId) joinRoom(roomId);
   });
+}
+
+function ensureFileModel(path, content, rev = 0) {
+  if (state.files.has(path)) return state.files.get(path);
+  const model = monaco.editor.createModel(content || "", "python");
+  const fileState = { path, model, rev: Number(rev || 0), pending: [], applying: false, sub: null };
+
+  fileState.sub = model.onDidChangeContent((e) => {
+    if (fileState.applying) return;
+    saveLocal();
+    if (!state.roomId) return;
+    if (state.me?.role === "viewer") return;
+    const changes = [...e.changes].sort((a, b) => a.rangeOffset - b.rangeOffset);
+    const ops = changes.map((c) => ({ pos: c.rangeOffset, del: c.rangeLength, ins: c.text || "" }));
+    if (ops.length === 0) return;
+    const baseRev = fileState.rev;
+    fileState.pending.push(...ops);
+    fileState.rev += ops.length;
+    ensureSocket().emit("editor:op", { roomId: state.roomId, path, baseRev, ops });
+    setSyncStatus("Syncing...");
+  });
+
+  state.files.set(path, fileState);
+  return fileState;
+}
+
+function setActiveFile(path) {
+  const f = state.files.get(path);
+  if (!f || !state.editor) return;
+  state.activePath = path;
+  state.editor.setModel(f.model);
+  clearMarkers();
+  renderTabs();
+}
+
+function applyRemoteOps(path, ops) {
+  const f = state.files.get(path);
+  if (!f) return;
+  const model = f.model;
+  const pending = f.pending || [];
+  const transformed = ops.map((op) => {
+    let t = { pos: Number(op.pos || 0), del: Number(op.del || 0), ins: op.ins || "" };
+    for (const p of pending) t = transform(t, p);
+    return t;
+  });
+
+  f.applying = true;
+  const edits = transformed.map((op) => {
+    const start = model.getPositionAt(op.pos);
+    const end = model.getPositionAt(op.pos + (op.del || 0));
+    return {
+      range: new monaco.Range(start.lineNumber, start.column, end.lineNumber, end.column),
+      text: op.ins || "",
+      forceMoveMarkers: true,
+    };
+  });
+  model.pushEditOperations([], edits, () => null);
+  f.applying = false;
+}
+
+function renderTabs() {
+  const tabs = $("tabs");
+  if (!tabs) return;
+  tabs.innerHTML = "";
+  const paths = [...state.files.keys()].sort((a, b) => (a === "main" ? -1 : b === "main" ? 1 : a.localeCompare(b)));
+
+  for (const p of paths) {
+    const btn = document.createElement("button");
+    btn.className =
+      "px-3 py-2 text-sm rounded-xl border " +
+      (p === state.activePath
+        ? "bg-white/10 border-white/20"
+        : state.theme === "dark"
+          ? "glass border-white/10 hover:bg-white/10"
+          : "glass-light border-black/10 hover:bg-black/5");
+    btn.textContent = p;
+    btn.onclick = () => setActiveFile(p);
+    tabs.appendChild(btn);
+  }
+
+  const plus = document.createElement("button");
+  plus.className = "px-3 py-2 text-sm rounded-xl glass border border-white/10 hover:bg-white/10";
+  plus.textContent = "+";
+  plus.title = "New file";
+  plus.onclick = () => {
+    const name = prompt("New file name (e.g. main.py, utils.js, notes.txt)")?.trim();
+    if (!name) return;
+    if (state.files.has(name)) return toast("warn", "File already exists");
+    ensureFileModel(name, "", 0);
+    renderTabs();
+    setActiveFile(name);
+    if (state.roomId) ensureSocket().emit("file:create", { roomId: state.roomId, path: name });
+  };
+  tabs.appendChild(plus);
 }
 
 function registerMiniLangMonaco() {
@@ -677,9 +812,7 @@ function initMonaco() {
       },
     });
 
-    state.model = monaco.editor.createModel("", "python");
     state.editor = monaco.editor.create($("editor"), {
-      model: state.model,
       theme: "codesync-dark",
       automaticLayout: true,
       minimap: { enabled: true },
@@ -693,6 +826,10 @@ function initMonaco() {
 
     setupEditorSync();
     restoreLocal();
+    // Ensure at least one tab/model exists
+    ensureFileModel("main", "", 0);
+    renderTabs();
+    setActiveFile(state.activePath || "main");
 
     const maybeRoom = getRoomIdFromUrl();
     if (maybeRoom) {
