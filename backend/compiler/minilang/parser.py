@@ -13,6 +13,7 @@ from backend.compiler.minilang.ast_nodes import (
     ProgramNode,
     Span,
     Stmt,
+    InputNode,
     UnaryOpNode,
 )
 from backend.compiler.minilang.lexer import Lexer, MiniLangLexError, Token
@@ -29,8 +30,9 @@ class Parser:
       program  := START stmt* STOP EOF
       stmt     := LET IDENT '=' expr
               |  PRINT expr
-              |  IF cond THEN stmt* END
-      cond     := expr ( '<' | '>' | '==' ) expr
+              |  IF cond THEN stmt* (ELSE stmt*)? END
+              |  INPUT IDENT
+      cond     := expr ( '<' | '>' | '==' | '!=' | '<=' | '>=' ) expr
       expr     := term (('+'|'-') term)*
       term     := factor (('*'|'/') factor)*
       factor   := ('+'|'-') factor | primary
@@ -99,22 +101,31 @@ class Parser:
             kw = self._prev()
             cond = self._cond()
             self._expect("THEN", "Expected THEN after IF condition")
-            body: List[Stmt] = []
-            while not self._at("END") and not self._at("EOF"):
-                body.append(self._stmt())
+            then_body: List[Stmt] = []
+            else_body: List[Stmt] = []
+            while not self._at("END") and not self._at("ELSE") and not self._at("EOF"):
+                then_body.append(self._stmt())
+            if self._match("ELSE"):
+                while not self._at("END") and not self._at("EOF"):
+                    else_body.append(self._stmt())
             self._expect("END", "Expected END to close IF block")
-            return IfNode(span=Span(kw.line, kw.col), condition=cond, then_body=body)
+            return IfNode(span=Span(kw.line, kw.col), condition=cond, then_body=then_body, else_body=else_body)
+
+        if self._match("INPUT"):
+            kw = self._prev()
+            name_tok = self._expect("IDENT", "Expected identifier after INPUT")
+            return InputNode(span=Span(kw.line, kw.col), name=name_tok.value)
 
         tok = self._peek()
         raise MiniLangParseError(f"MiniLang ParseError at line {tok.line}, col {tok.col}: Unexpected token {tok.type}")
 
     def _cond(self):
         left = self._expr()
-        op_tok = self._match("LT", "GT", "EQEQ")
+        op_tok = self._match("LT", "GT", "EQEQ", "NEQ", "LE", "GE")
         if not op_tok:
             tok = self._peek()
             raise MiniLangParseError(
-                f"MiniLang ParseError at line {tok.line}, col {tok.col}: Expected comparison operator (<, >, ==)"
+                f"MiniLang ParseError at line {tok.line}, col {tok.col}: Expected comparison operator (<, >, ==, !=, <=, >=)"
             )
         right = self._expr()
         return BinaryOpNode(span=Span(op_tok.line, op_tok.col), left=left, op=op_tok.value, right=right)

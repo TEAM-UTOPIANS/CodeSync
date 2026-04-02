@@ -8,6 +8,7 @@ from backend.compiler.minilang.ast_nodes import (
     BinaryOpNode,
     IdentifierNode,
     IfNode,
+    InputNode,
     LiteralNode,
     ParenNode,
     PrintNode,
@@ -62,6 +63,13 @@ def _analyze_stmt(stmt: Stmt, env: _Env) -> None:
         # allow definitions in IF to carry out (simple language)
         for s in stmt.then_body:
             _analyze_stmt(s, env)
+        for s in stmt.else_body:
+            _analyze_stmt(s, env)
+        return
+    if isinstance(stmt, InputNode):
+        # INPUT assigns a value to a variable
+        env.defined.add(stmt.name)
+        env.types[stmt.name] = env.types.get(stmt.name, "unknown")
         return
     raise _err(stmt.span, f"Unknown statement type: {type(stmt).__name__}")
 
@@ -97,11 +105,13 @@ def _analyze_expr(expr, env: _Env) -> ValueType:
             if lt not in ("number", "unknown") or rt not in ("number", "unknown"):
                 raise _err(expr.span, f"Operator '{op}' expects numbers")
             return "number"
-        if op in ("<", ">"):
+        if op in ("<", ">", "<=", ">="):
             if lt not in ("number", "unknown") or rt not in ("number", "unknown"):
                 raise _err(expr.span, f"Operator '{op}' expects numbers")
             return "bool"
-        if op == "==":
+        if op in ("==", "!="):
+            if (lt == "string" and rt not in ("string", "unknown")) or (rt == "string" and lt not in ("string", "unknown")):
+                raise _err(expr.span, f"Operator '{op}' expects matching operand types")
             return "bool"
         raise _err(expr.span, f"Unknown operator '{op}'")
     raise _err(getattr(expr, "span", Span(1, 1)), f"Unknown expression type: {type(expr).__name__}")

@@ -27,7 +27,7 @@ def execute_code(payload: Dict[str, Any], req: Request) -> Tuple[Dict[str, Any],
 
     if language == "minilang":
         try:
-            out = run_minilang(code)
+            out = run_minilang(code, stdin=stdin)
             return {"ok": True, "mode": "minilang", "stdout": out, "stderr": "", "status": "OK"}, 200
         except Exception as e:  # surface interpreter errors cleanly
             return {"ok": False, "mode": "minilang", "stdout": "", "stderr": str(e), "status": "ERROR"}, 200

@@ -46,6 +46,13 @@ class IfNode(Stmt):
     span: Span
     condition: Expr
     then_body: List[Stmt]
+    else_body: List[Stmt]
+
+
+@dataclass(frozen=True)
+class InputNode(Stmt):
+    span: Span
+    name: str
 
 
 @dataclass(frozen=True)

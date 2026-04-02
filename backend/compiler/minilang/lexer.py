@@ -11,7 +11,9 @@ KEYWORDS = {
     "PRINT",
     "IF",
     "THEN",
+    "ELSE",
     "END",
+    "INPUT",
 }
 
 
@@ -156,6 +158,23 @@ class Lexer:
                     tokens.append(Token(upper, upper, start_line, start_col))
                 else:
                     tokens.append(Token("IDENT", text, start_line, start_col))
+                continue
+
+            # two-char operators
+            if ch == "<" and self.src[self.i : self.i + 2] == "<=":
+                self._advance()
+                self._advance()
+                tokens.append(Token("LE", "<=", start_line, start_col))
+                continue
+            if ch == ">" and self.src[self.i : self.i + 2] == ">=":
+                self._advance()
+                self._advance()
+                tokens.append(Token("GE", ">=", start_line, start_col))
+                continue
+            if ch == "!" and self.src[self.i : self.i + 2] == "!=":
+                self._advance()
+                self._advance()
+                tokens.append(Token("NEQ", "!=", start_line, start_col))
                 continue
 
             if ch == "=" and self.src[self.i : self.i + 2] == "==":

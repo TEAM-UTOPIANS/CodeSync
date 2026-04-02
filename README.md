@@ -55,6 +55,7 @@ LAN joining (same Wi‑Fi):
 
 - Select **Python/C++/Java** → runs via **Judge0** (backend submits + polls).
 - Select **MiniLang** → runs through the backend interpreter (no Judge0).
+- Judge0 integration is done via a **REST API** (`/api/execute` → backend → Judge0 → poll → return output).
 
 ### Pages
 
@@ -86,9 +87,12 @@ MiniLang is a small interpreted language executed **directly in the Python backe
 - **Print**
   - `PRINT <expr>`
 - **If**
-  - `IF <expr> < <expr> THEN`
+  - `IF <condition> THEN`
   - (statements...)
+  - Optional `ELSE` (more statements)
   - `END`
+- **Input**
+  - `INPUT <identifier>` (reads next line from stdin)
 
 #### Expressions
 
@@ -97,7 +101,7 @@ MiniLang is a small interpreted language executed **directly in the Python backe
 - **Identifiers**: `x`, `total_sum`
 - **Operators**
   - Arithmetic: `+ - * /`
-  - Comparisons: `< > ==`
+  - Comparisons: `< > <= >= == !=`
   - Parentheses: `( ... )`
 - **String concatenation**
   - `PRINT "hi " + name`
@@ -116,6 +120,8 @@ PRINT x + y
 
 IF x < y THEN
     PRINT "x is smaller"
+ELSE
+    PRINT "x is not smaller"
 END
 
 STOP
@@ -129,21 +135,11 @@ STOP
 
 MiniLang errors include **line/col** so the frontend can highlight the location.
 
-### Docker (Linux production recommended)
-
-This uses **eventlet** on Linux automatically. On macOS the server defaults to **threading** because of an eventlet/kqueue issue.
-
-```bash
-docker compose up --build
-```
-
-Then open `http://localhost:5000`.
-
 ### Scaling with Redis (optional)
 
 Set:
 - `USE_REDIS=1`
-- `REDIS_URL=redis://redis:6379/0` (Docker) or your own Redis URL.
+- `REDIS_URL=redis://localhost:6379/0` (or your own Redis URL).
 
 ### Repo structure
 
