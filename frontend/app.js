@@ -36,6 +36,7 @@ const state = {
   socket: null,
   roomId: null,
   me: null,
+  hostSid: null,
   users: new Map(), // sid -> user
   editor: null,
   theme: "dark",
@@ -144,8 +145,32 @@ function renderUsers() {
     left.appendChild(meta);
 
     row.appendChild(left);
+
+    // Host can assign editor/viewer for non-host users
+    if (state.me?.sid === state.hostSid && u.sid !== state.hostSid) {
+      const sel = document.createElement("select");
+      sel.className =
+        "text-xs rounded-lg px-2 py-1 border bg-transparent " +
+        (state.theme === "dark" ? "border-white/20" : "border-black/20");
+      sel.innerHTML = `
+        <option value="editor">editor</option>
+        <option value="viewer">viewer</option>
+      `;
+      sel.value = u.role === "viewer" ? "viewer" : "editor";
+      sel.onchange = () => {
+        if (!state.roomId) return;
+        ensureSocket().emit("room:set_role", { roomId: state.roomId, targetSid: u.sid, role: sel.value });
+      };
+      row.appendChild(sel);
+    }
     list.appendChild(row);
   }
+}
+
+function setEditorReadOnly() {
+  if (!state.editor) return;
+  const isViewer = state.me?.role === "viewer";
+  state.editor.updateOptions({ readOnly: !!isViewer });
 }
 
 function appendChat(entry) {
@@ -306,11 +331,13 @@ function ensureSocket() {
   sock.on("room:state", (payload) => {
     state.roomId = payload.roomId;
     state.me = payload.me;
+    state.hostSid = payload.hostSid || null;
     state.users.clear();
     for (const u of payload.users || []) state.users.set(u.sid, u);
     $("roomLabel").textContent = state.roomId;
     setRoomIdInUrl(state.roomId);
     renderUsers();
+    setEditorReadOnly();
 
     const files = payload.files || [{ path: "main", content: "", rev: 0 }];
     for (const file of files) {
@@ -348,12 +375,26 @@ function ensureSocket() {
   });
 
   sock.on("room:host_changed", ({ hostSid }) => {
+    state.hostSid = hostSid || null;
     for (const u of state.users.values()) {
       if (u.sid === hostSid) u.role = "host";
       else if (u.role === "host") u.role = "editor";
     }
+    if (state.me && state.me.sid === hostSid) state.me.role = "host";
     renderUsers();
+    setEditorReadOnly();
     toast("info", "Host changed");
+  });
+
+  sock.on("room:role_updated", ({ sid, role }) => {
+    const u = state.users.get(sid);
+    if (u) u.role = role;
+    if (state.me?.sid === sid) {
+      state.me.role = role;
+      setEditorReadOnly();
+      toast("info", role === "viewer" ? "You are now viewer (read-only)" : "You are now editor");
+    }
+    renderUsers();
   });
 
   sock.on("room:toast", ({ kind, message }) => toast(kind || "info", message || ""));
@@ -381,6 +422,14 @@ function ensureSocket() {
     applyRemoteOps(path, ops);
     setSyncStatus("Synced");
     setTimeout(() => setSyncStatus("Connected"), 700);
+  });
+
+  sock.on("editor:ack", ({ path, acceptedOps, rev }) => {
+    const f = state.files.get(path);
+    if (!f) return;
+    const n = Math.max(0, Number(acceptedOps || 0));
+    if (n > 0) f.pending.splice(0, n);
+    if (Number.isFinite(Number(rev))) f.rev = Number(rev);
   });
 
   sock.on("editor:cursor", ({ sid, cursor }) => {
@@ -502,7 +551,7 @@ function setupCommandPalette() {
     {
       id: "save",
       label: "Save locally",
-      action: () => saveLocal(),
+      action: () => saveLocal(true),
     },
   ];
 
@@ -549,7 +598,7 @@ function setupCommandPalette() {
   });
 }
 
-function saveLocal() {
+function saveLocal(showToast = false) {
   const f = state.files.get(state.activePath);
   if (!f) return;
   const payload = {
@@ -561,7 +610,7 @@ function saveLocal() {
     ts: Date.now(),
   };
   localStorage.setItem("codesync:last", JSON.stringify(payload));
-  toast("success", "Saved locally");
+  if (showToast) toast("success", "Saved locally");
 }
 
 function restoreLocal() {
@@ -705,6 +754,7 @@ function setActiveFile(path) {
   if (!f || !state.editor) return;
   state.activePath = path;
   state.editor.setModel(f.model);
+  setEditorReadOnly();
   clearMarkers();
   renderTabs();
 }
@@ -778,11 +828,11 @@ function registerMiniLangMonaco() {
         [/#.*$/, "comment"],
         [/"([^"\\]|\\.)*$/, "string.invalid"],
         [/"/, { token: "string.quote", bracket: "@open", next: "@string" }],
-        [/\b(START|STOP|LET|PRINT|IF|THEN|END)\b/, "keyword"],
+        [/\b(START|STOP|LET|PRINT|IF|THEN|ELSE|END|INPUT)\b/, "keyword"],
         [/\b(true|false|null)\b/i, "constant"],
         [/[a-zA-Z_]\w*/, "identifier"],
         [/\d+(\.\d+)?/, "number"],
-        [/==|[+\-*/<>=()]/, "operator"],
+        [/!=|==|<=|>=|[+\-*/<>=()]/, "operator"],
         [/[ \t\r\n]+/, "white"],
       ],
       string: [
@@ -851,7 +901,7 @@ function setupShortcuts() {
     }
     if (mod && e.key.toLowerCase() === "s") {
       e.preventDefault();
-      saveLocal();
+      saveLocal(true);
     }
   });
 }

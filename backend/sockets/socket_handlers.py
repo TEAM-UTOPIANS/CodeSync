@@ -94,6 +94,8 @@ def register_socket_handlers(socketio: SocketIO) -> None:
                 "hostSid": room.host_sid,
                 "language": room.language,
                 "files": list(room.files.values()),
+                # Back-compat for older clients expecting a single document
+                "code": (room.files.get("main") or {"content": ""}).get("content", ""),
                 "users": list(room.users.values()),
                 "chat": room.chat[-200:],
             },
@@ -210,6 +212,41 @@ def register_socket_handlers(socketio: SocketIO) -> None:
             room=room_id,
             include_self=False,
         )
+        # Ack sender so client can clear local pending ops
+        emit(
+            "editor:ack",
+            {"path": path, "acceptedOps": len(ops), "rev": file["rev"]},
+            to=sid,
+        )
+
+    @socketio.on("editor:code")
+    def editor_code_backcompat(payload: Dict[str, Any]):
+        """
+        Back-compat: accept whole-document updates from older clients, but apply them via OT
+        as a single replace op to avoid last-write-wins overwrites.
+        """
+        room_id = safe_str(payload.get("roomId", ""))
+        code = str(payload.get("code", ""))
+        room = RoomService.get_room(room_id)
+        if not room:
+            return
+        sid = request.sid
+        user = room.users.get(sid)
+        if not user or user["role"] == "viewer":
+            return
+
+        path = "main"
+        file = room.files.get(path)
+        if not file:
+            room.files[path] = {"path": path, "content": "", "rev": 0, "ops": []}
+            file = room.files[path]
+
+        # Replace entire document as an OT op (delete all + insert new)
+        base_rev = int(file["rev"])
+        ops = [{"pos": 0, "del": len(file["content"]), "ins": code}]
+        # Reuse OT pipeline by calling editor_op logic inline
+        payload2 = {"roomId": room_id, "path": path, "baseRev": base_rev, "ops": ops}
+        editor_op(payload2)  # type: ignore[misc]
 
     @socketio.on("editor:cursor")
     def editor_cursor(payload: Dict[str, Any]):
@@ -264,3 +301,26 @@ def register_socket_handlers(socketio: SocketIO) -> None:
             return
         room.language = language
         emit("room:language", {"language": language}, room=room_id)
+
+    @socketio.on("room:set_role")
+    def set_role(payload: Dict[str, Any]):
+        room_id = safe_str(payload.get("roomId", ""))
+        target_sid = safe_str(payload.get("targetSid", ""), max_len=128)
+        role = safe_str(payload.get("role", ""), max_len=10)
+        if role not in ("editor", "viewer"):
+            return
+        room = RoomService.get_room(room_id)
+        if not room or not target_sid:
+            return
+        sid = request.sid
+        actor = room.users.get(sid)
+        if not actor or actor.get("role") != "host":
+            return
+        target = room.users.get(target_sid)
+        if not target:
+            return
+        # Host role cannot be downgraded here.
+        if target_sid == room.host_sid:
+            return
+        target["role"] = role
+        emit("room:role_updated", {"sid": target_sid, "role": role}, room=room_id)

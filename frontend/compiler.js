@@ -34,10 +34,10 @@ function registerMiniLang() {
       root: [
         [/#.*$/, "comment"],
         [/"/, { token: "string.quote", bracket: "@open", next: "@string" }],
-        [/\b(START|STOP|LET|PRINT|IF|THEN|END)\b/, "keyword"],
+        [/\b(START|STOP|LET|PRINT|IF|THEN|ELSE|END|INPUT)\b/, "keyword"],
         [/[a-zA-Z_]\w*/, "identifier"],
         [/\d+(\.\d+)?/, "number"],
-        [/==|[+\-*/<>=()]/, "operator"],
+        [/!=|==|<=|>=|[+\-*/<>=()]/, "operator"],
       ],
       string: [
         [/[^\\"]+/, "string"],
@@ -63,6 +63,11 @@ function initMonaco() {
 }
 
 async function run() {
+  const btn = $("runBtn");
+  const old = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "Running...";
+  btn.classList.add("opacity-70");
   const language = $("languageSelect").value;
   const code = model?.getValue() || "";
   const stdin = $("stdin").value || "";
@@ -88,6 +93,10 @@ async function run() {
   } catch (e) {
     $("output").textContent = String(e);
     toast(String(e));
+  } finally {
+    btn.disabled = false;
+    btn.textContent = old;
+    btn.classList.remove("opacity-70");
   }
 }
 
