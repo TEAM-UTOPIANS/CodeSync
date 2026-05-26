@@ -3,6 +3,7 @@
   "installCommand": "pip install -r requirements.txt",
   "framework": "flask",
   "env": {
-    "PYTHONUNBUFFERED": "1"
+    "PYTHONUNBUFFERED": "1",
+    "JUDGE0_BASE_URL": "https://judge0-ce.p.rapidapi.com"
   }
 }
