@@ -114,15 +114,44 @@ MiniLang is a small interpreted language executed **directly in the Python backe
 
 ```text
 START
+# Variable assignment and arithmetic
 LET x = 10
 LET y = 20
-PRINT x + y
+LET sum = x + y
+LET diff = x - y
+LET prod = x * y
+LET quot = y / x
 
+# Print numbers and strings
+PRINT "Sum: " + sum
+PRINT "Difference: " + diff
+PRINT "Product: " + prod
+PRINT "Quotient: " + quot
+
+# String concatenation
+LET name = "Alice"
+PRINT "Hello, " + name
+
+# Comparisons with if-else
 IF x < y THEN
-    PRINT "x is smaller"
+    PRINT "x is smaller than y"
 ELSE
-    PRINT "x is not smaller"
+    PRINT "x is not smaller than y"
 END
+
+# More conditions
+IF x == 10 THEN
+    PRINT "x equals 10"
+END
+
+IF y >= 15 THEN
+    PRINT "y is greater than or equal to 15"
+END
+
+# Input from user
+PRINT "Enter a number:"
+INPUT num
+PRINT "You entered: " + num
 
 STOP
 ```

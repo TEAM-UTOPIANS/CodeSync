@@ -12,88 +12,127 @@
 
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
-      rel="stylesheet"
-    />
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
 
     <style>
+      *, *::before, *::after { box-sizing: border-box; }
       :root {
         --bg0: #07090f; --bg1: #0d1117; --bg2: #161b22;
-        --surface: rgba(255,255,255,0.04); --border: rgba(255,255,255,0.10);
-        --ink: #e6edf3; --ink2: #7d8590; --blue: #4d9de0;
-        --mono: 'JetBrains Mono', monospace;
+        --surface: rgba(255,255,255,0.04); --surface-h: rgba(255,255,255,0.07);
+        --border: rgba(255,255,255,0.07); --border-m: rgba(255,255,255,0.12); --border-h: rgba(255,255,255,0.22);
+        --ink: #e6edf3; --ink-2: #7d8590; --ink-3: #3d444d;
+        --font-mono: 'JetBrains Mono', monospace; --font-ui: 'Outfit', sans-serif; --r: 10px; --r-lg: 14px;
+        --pp-bg: #3f3a52;
+        --pp-elevated: #4a4358;
+        --pp-card: #5a5475;
+        --pp-input: #46425e;
+        --pp-border: rgba(197, 163, 255, 0.14);
+        --pp-border-m: rgba(197, 163, 255, 0.24);
+        --pp-accent: #c5a3ff;
+        --pp-accent-dim: rgba(197, 163, 255, 0.16);
+        --pp-accent-text: #1a1528;
+        --pp-label: #c9bddf;
+        --pp-muted: #9a90b8;
+        --pp-row-bg: rgba(90, 84, 117, 0.35);
       }
-      html, body { height: 100%; font-family: Inter, ui-sans-serif, system-ui; background: var(--bg0); color: var(--ink); }
-      .glass { background: var(--surface); border: 1px solid var(--border); backdrop-filter: blur(14px); }
-      .mono { font-family: var(--mono); }
-      .monaco-container { position: relative; width: 100%; height: 100%; }
-      .topbar { height: 52px; display: flex; align-items: center; justify-content: space-between; padding: 0 14px; border-bottom: 1px solid var(--border); background: var(--bg1); }
-      .shell { height: calc(100% - 52px); display: grid; grid-template-columns: 1fr 360px; min-height: 0; }
-      .side { border-left: 1px solid var(--border); background: var(--bg1); display: flex; flex-direction: column; min-height: 0; }
-      .pane { padding: 12px; min-height: 0; display: flex; flex-direction: column; }
-      .pane + .pane { border-top: 1px solid var(--border); flex: 1; }
-      .label { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink2); margin-bottom: 8px; }
-      #stdin, #output { width: 100%; border-radius: 10px; border: 1px solid var(--border); background: var(--bg2); color: var(--ink); padding: 10px; font-family: var(--mono); font-size: 12px; }
-      #stdin { height: 130px; resize: vertical; }
-      #output { flex: 1; overflow: auto; white-space: pre-wrap; }
-      @media (max-width: 1024px) { .shell { grid-template-columns: 1fr; } .side { border-left: 0; border-top: 1px solid var(--border);} }
+      html, body { height: 100%; margin: 0; font-family: var(--font-ui); font-size: 14px; background: var(--bg0); color: var(--ink); overflow: hidden; }
+      body.light {
+        --bg0: #f6f8fa; --bg1: #ffffff; --bg2: #f0f2f5;
+        --surface: rgba(0,0,0,0.03); --surface-h: rgba(0,0,0,0.06);
+        --border: rgba(0,0,0,0.07); --border-m: rgba(0,0,0,0.12); --border-h: rgba(0,0,0,0.20);
+        --ink: #1c2128; --ink-2: #57606a; --ink-3: #adb8c4;
+        --pp-bg: #ebe6f5;
+        --pp-elevated: #e4ddf2;
+        --pp-card: #dcd4ec;
+        --pp-input: #d2c8e6;
+        --pp-border: rgba(74, 58, 112, 0.14);
+        --pp-border-m: rgba(74, 58, 112, 0.22);
+        --pp-accent: #8b6fd4;
+        --pp-accent-dim: rgba(139, 111, 212, 0.18);
+        --pp-accent-text: #1f1830;
+        --pp-label: #5a4a78;
+        --pp-muted: #6f6088;
+        --pp-row-bg: rgba(255, 255, 255, 0.55);
+      }
+      #app { display: flex; flex-direction: column; height: 100vh; overflow: hidden; background: var(--bg0); }
+      .topbar { display: flex; align-items: center; justify-content: space-between; height: 52px; padding: 0 16px; background: var(--pp-bg); border-bottom: 1px solid var(--pp-border-m); gap: 10px; flex-shrink: 0; }
+      .brand-mark { width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; text-decoration: none; overflow: hidden; flex-shrink: 0; }
+      .brand-mark img { width: 100%; height: 100%; object-fit: contain; display: block; }
+      .topbar-title .t1 { font-size: 13px; font-weight: 600; color: var(--ink); }
+      .topbar-title .t2 { font-size: 11px; color: var(--pp-muted); font-family: var(--font-mono); }
+      .topbar-right { display: flex; align-items: center; gap: 6px; }
+      select.lang-select {
+        font-family: var(--font-mono); font-size: 11px; padding: 6px 28px 6px 10px;
+        border-radius: var(--r); border: 1px solid var(--pp-border-m); background: var(--pp-input); color: var(--ink);
+        outline: none; cursor: pointer; -webkit-appearance: none; appearance: none;
+      }
+      .btn-run { display: flex; align-items: center; gap: 6px; padding: 7px 14px; font-size: 13px; font-weight: 600; background: linear-gradient(135deg, #238636, #2ea043); color: #fff; border: 0; border-radius: var(--r); cursor: pointer; box-shadow: 0 0 10px rgba(46,160,67,0.28); }
+      .btn-run:disabled { opacity: .6; cursor: not-allowed; }
+      .btn-ghost { display: flex; align-items: center; gap: 6px; padding: 6px 11px; font-size: 12px; color: var(--pp-label); background: var(--pp-accent-dim); border: 1px solid var(--pp-border-m); border-radius: var(--r); cursor: pointer; }
+      .btn-ghost:hover { background: var(--pp-card); color: var(--ink); border-color: rgba(197, 163, 255, 0.35); }
+      body.light .btn-ghost:hover { border-color: rgba(74, 58, 112, 0.28); }
+      .body-row { display: flex; flex-direction: column; flex: 1; overflow: hidden; min-height: 0; }
+      .editor-wrap { flex: 1; position: relative; min-height: 0; overflow: hidden; }
+      .monaco-container { position: absolute; inset: 0; }
+      #bottomPanel { height: 200px; display: flex; flex-direction: column; border-top: 1px solid var(--pp-border-m); flex-shrink: 0; overflow: hidden; background: var(--pp-bg); padding: 10px 12px; gap: 6px; }
+      .terminal-header { font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--pp-label); display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
+      .btn-clear { font-size: 10px; font-family: var(--font-mono); color: var(--pp-label); background: var(--pp-accent-dim); border: 1px solid var(--pp-border-m); border-radius: 6px; padding: 2px 7px; cursor: pointer; }
+      .btn-clear:hover { background: var(--pp-card); color: var(--ink); }
+      .terminal-body { flex: 1; display: flex; flex-direction: column; min-height: 0; font-family: var(--font-mono); font-size: 11px; color: var(--ink); background: var(--pp-input); border: 1px solid var(--pp-border-m); border-radius: 8px; overflow: hidden; }
+      #terminalScroll { flex: 1; overflow: auto; padding: 8px 10px; line-height: 1.6; min-height: 0; }
+      #terminalOutput { margin: 0; }
+      #terminalOutput .terminal-echo { color: var(--pp-muted); white-space: pre-wrap; word-break: break-word; }
+      #terminalOutput .terminal-run { margin: 6px 0 0; white-space: pre-wrap; word-break: break-word; }
+      #terminalOutput .terminal-run:first-child { margin-top: 0; }
+      .terminal-input-row { display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-top: 1px solid var(--pp-border-m); background: rgba(0,0,0,0.12); flex-shrink: 0; }
+      body.light .terminal-input-row { background: rgba(0,0,0,0.04); }
+      .terminal-prompt { color: var(--pp-accent); font-weight: 600; user-select: none; }
+      #terminalInput { flex: 1; min-width: 0; border: 0; outline: none; background: transparent; color: var(--ink); font-family: inherit; font-size: inherit; }
+      #terminalInput::placeholder { color: var(--pp-muted); opacity: 0.85; }
+      #toasts { position: fixed; bottom: 16px; right: 16px; z-index: 999; display: flex; flex-direction: column; gap: 6px; }
+      .toast-item { max-width: 20rem; padding: 8px 12px; font-size: 13px; border-radius: var(--r-lg); border: 1px solid var(--pp-border-m); background: var(--pp-card); color: var(--ink); box-shadow: 0 10px 30px rgba(0,0,0,0.25); }
     </style>
   </head>
-
-  <body class="h-full dark">
-    <div class="topbar">
-        <div class="flex items-center gap-2">
-          <a href="/" class="h-9 w-9 rounded-xl bg-gradient-to-br from-indigo-500 to-cyan-400"></a>
-          <div>
-            <div class="text-sm font-semibold">Compiler (Solo)</div>
-            <div class="text-xs text-slate-400 mono">Run Judge0 or MiniLang without a room</div>
+  <body class="dark">
+    <div id="app">
+      <div class="topbar">
+        <div style="display:flex;align-items:center;gap:10px;flex-shrink:0;">
+          <a href="/" class="brand-mark">
+            <img src="/static/codesync-logo.png" alt="CodeSync" width="32" height="32" />
+          </a>
+          <div class="topbar-title">
+            <div class="t1">Compiler (Solo)</div>
+            <div class="t2">Run Judge0 or MiniLang without a room</div>
           </div>
         </div>
-        <div class="flex items-center gap-2">
-          <select id="languageSelect" class="glass rounded-xl px-3 py-2 text-sm border border-white/10 bg-transparent mono">
+        <div class="topbar-right">
+          <select id="languageSelect" class="lang-select">
             <option value="python">Python (Judge0)</option>
             <option value="cpp">C++ (Judge0)</option>
             <option value="java">Java (Judge0)</option>
             <option value="minilang">MiniLang (local)</option>
           </select>
-          <button
-            id="runBtn"
-            class="rounded-xl px-4 py-2 text-sm font-semibold bg-emerald-500/90 hover:bg-emerald-500 disabled:opacity-60 disabled:cursor-not-allowed"
-          >
-            Run
-          </button>
-          <button id="themeBtn" class="rounded-xl px-3 py-2 text-sm glass hover:bg-white/10 border border-white/10 mono">
-            Theme
-          </button>
+          <button id="runBtn" class="btn-run">Run</button>
+          <button id="themeBtn" class="btn-ghost" title="Toggle theme">Theme</button>
         </div>
-    </div>
-
-      <div class="shell">
-        <div class="border-r border-white/10 min-h-0">
-          <div id="editor" class="monaco-container min-h-0"></div>
+      </div>
+      <div class="body-row">
+        <div class="editor-wrap">
+          <div id="editor" class="monaco-container"></div>
         </div>
-        <div class="side">
-          <div class="pane">
-            <div class="label">stdin</div>
-            <textarea id="stdin" placeholder="Optional input..."></textarea>
-          </div>
-          <div class="pane">
-            <div class="flex items-center justify-between mb-2">
-              <div class="label" style="margin-bottom:0;">output</div>
-              <button id="clearOutputBtn" class="rounded-xl px-3 py-2 text-xs glass hover:bg-white/10 border border-white/10 mono">
-                Clear
-              </button>
-            </div>
-            <pre id="output"></pre>
+        <div id="bottomPanel">
+          <div class="terminal-header"><span>Terminal</span><button id="clearTerminalBtn" type="button" class="btn-clear">Clear</button></div>
+          <div class="terminal-body">
+            <div id="terminalScroll"><div id="terminalOutput"></div></div>
+            <div class="terminal-input-row"><span class="terminal-prompt">&gt;</span><input id="terminalInput" type="text" placeholder="Type input and press Enter…" autocomplete="off" spellcheck="false" /></div>
           </div>
         </div>
       </div>
-
-    <div id="toasts" class="fixed bottom-4 right-4 space-y-2 z-50"></div>
+    </div>
+    <div id="toasts"></div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs/loader.min.js"></script>
+    <script src="/static/terminal.js"></script>
     <script src="/static/compiler.js"></script>
   </body>
 </html>
-

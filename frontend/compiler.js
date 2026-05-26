@@ -8,9 +8,7 @@ let theme = localStorage.getItem("codesync:theme") || "dark";
 
 function toast(message, ttl = 2400) {
   const el = document.createElement("div");
-  el.className =
-    "max-w-sm rounded-2xl px-3 py-2 text-sm border shadow-xl " +
-    (theme === "dark" ? "bg-white/10 border-white/10 text-slate-100" : "bg-white/80 border-black/10 text-slate-950");
+  el.className = "toast-item";
   el.textContent = message;
   $("toasts").appendChild(el);
   setTimeout(() => el.remove(), ttl);
@@ -19,10 +17,7 @@ function toast(message, ttl = 2400) {
 function setTheme(next) {
   theme = next;
   document.body.classList.toggle("dark", next === "dark");
-  document.body.classList.toggle("bg-slate-950", next === "dark");
-  document.body.classList.toggle("text-slate-100", next === "dark");
-  document.body.classList.toggle("bg-slate-50", next !== "dark");
-  document.body.classList.toggle("text-slate-950", next !== "dark");
+  document.body.classList.toggle("light", next !== "dark");
   localStorage.setItem("codesync:theme", next);
   if (editor) monaco.editor.setTheme(next === "dark" ? "codesync-dark" : "vs");
 }
@@ -52,7 +47,17 @@ function initMonaco() {
   require.config({ paths: { vs: "https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs" } });
   require(["vs/editor/editor.main"], () => {
     registerMiniLang();
-    monaco.editor.defineTheme("codesync-dark", { base: "vs-dark", inherit: true, rules: [], colors: { "editor.background": "#0b1220" } });
+    monaco.editor.defineTheme("codesync-dark", {
+      base: "vs-dark",
+      inherit: true,
+      rules: [
+        { token: "keyword", foreground: "93c5fd", fontStyle: "bold" },
+        { token: "comment", foreground: "64748b" },
+        { token: "number", foreground: "fbbf24" },
+        { token: "string", foreground: "34d399" },
+      ],
+      colors: { "editor.background": "#0b1220" },
+    });
     model = monaco.editor.createModel(
       "START\nLET x = 10\nLET y = 20\nPRINT x + y\nSTOP\n",
       "minilang",
@@ -62,6 +67,8 @@ function initMonaco() {
   });
 }
 
+const term = () => window.CodeSyncTerminal;
+
 async function run() {
   const btn = $("runBtn");
   const old = btn.textContent;
@@ -70,8 +77,8 @@ async function run() {
   btn.classList.add("opacity-70");
   const language = $("languageSelect").value;
   const code = model?.getValue() || "";
-  const stdin = $("stdin").value || "";
-  $("output").textContent = "";
+  if (term()) term().beforeRun();
+  const stdin = term() ? term().getStdin() : "";
   try {
     const res = await fetch("/api/execute", {
       method: "POST",
@@ -80,18 +87,15 @@ async function run() {
     });
     const data = await res.json();
     if (!data.ok) {
-      $("output").textContent = data.error || "Execution failed";
-      toast(data.error || "Execution failed");
+      const errText = term() ? term().formatRunResult(data) : data.error || data.stderr || "Execution failed";
+      if (term()) term().setRunOutput(errText);
+      toast(errText);
       return;
     }
-    const out =
-      (data.status ? `Status: ${data.status}\n\n` : "") +
-      (data.stdout ? `stdout:\n${data.stdout}\n\n` : "") +
-      (data.stderr ? `stderr:\n${data.stderr}\n` : "");
-    $("output").textContent = out.trim() + "\n";
+    if (term()) term().setRunOutput(term().formatRunResult(data));
     toast("Done");
   } catch (e) {
-    $("output").textContent = String(e);
+    if (term()) term().setRunOutput(String(e));
     toast(String(e));
   } finally {
     btn.disabled = false;
@@ -101,10 +105,10 @@ async function run() {
 }
 
 function boot() {
+  if (window.CodeSyncTerminal) window.CodeSyncTerminal.init();
   setTheme(theme);
   initMonaco();
   $("runBtn").onclick = run;
-  $("clearOutputBtn").onclick = () => ($("output").textContent = "");
   $("themeBtn").onclick = () => setTheme(theme === "dark" ? "light" : "dark");
   $("languageSelect").onchange = () => {
     const lang = $("languageSelect").value;

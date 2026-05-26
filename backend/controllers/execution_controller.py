@@ -3,7 +3,7 @@ from typing import Any, Dict, Tuple
 from flask import Request, current_app
 
 from backend.services.judge0_service import Judge0Service
-from backend.compiler.minilang.interpreter import run_minilang
+from backend.compiler.minilang.interpreter import MiniLangInputNeeded, run_minilang
 from backend.utils.security import RateLimiter, validate_execute_payload
 
 
@@ -29,6 +29,17 @@ def execute_code(payload: Dict[str, Any], req: Request) -> Tuple[Dict[str, Any],
         try:
             out = run_minilang(code, stdin=stdin)
             return {"ok": True, "mode": "minilang", "stdout": out, "stderr": "", "status": "OK"}, 200
+        except MiniLangInputNeeded as e:
+            # Interactive-style: stop execution and ask the frontend to request more stdin.
+            # We keep this as ok=false (like other runtime errors) so the frontend can display it.
+            return {
+                "ok": False,
+                "mode": "minilang",
+                "stdout": e.partial_stdout,
+                "stderr": "",
+                "status": "WAITING_FOR_INPUT",
+                "input_var": e.var_name,
+            }, 200
         except Exception as e:  # surface interpreter errors cleanly
             return {"ok": False, "mode": "minilang", "stdout": "", "stderr": str(e), "status": "ERROR"}, 200
 

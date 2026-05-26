@@ -25,6 +25,20 @@ class MiniLangRuntimeError(Exception):
     pass
 
 
+class MiniLangInputNeeded(Exception):
+    """
+    Raised when an `INPUT <name>` statement is reached but no stdin lines remain.
+    We surface partial stdout so the frontend can display what the program printed
+    before asking for more input.
+    """
+
+    def __init__(self, *, var_name: str, output_lines: List[str], span: Span):
+        self.var_name = var_name
+        self.partial_stdout = "\n".join(output_lines)
+        self.span = span
+        super().__init__(f"Waiting for input for '{var_name}' at line {span.line}, col {span.col}")
+
+
 @dataclass
 class _Context:
     variables: Dict[str, Any]
@@ -90,6 +104,9 @@ def _exec_stmt(stmt: Stmt, ctx: _Context) -> None:
         return
     if isinstance(stmt, InputNode):
         _step(ctx, stmt.span)
+        if ctx.stdin_idx >= len(ctx.stdin_lines):
+            # Stop execution instead of consuming "" and continuing.
+            raise MiniLangInputNeeded(var_name=stmt.name, output_lines=ctx.output, span=stmt.span)
         v = _read_stdin(ctx)
         # Attempt numeric parse; otherwise treat as string.
         try:

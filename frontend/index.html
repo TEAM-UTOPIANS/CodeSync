@@ -46,7 +46,12 @@
 
     html, body {
       height: 100%;
-      background: var(--bg0);
+      background-color: var(--bg0);
+      background-image: url("/static/home-bg-dark.png");
+      background-size: cover;
+      background-position: center center;
+      background-repeat: no-repeat;
+      background-attachment: fixed;
       color: var(--ink);
       font-family: var(--font-body);
       font-size: 15px;
@@ -67,6 +72,7 @@
       --ink:      #0d1220;
       --ink-2:    #4b5a72;
       --ink-3:    #8b9ab5;
+      background-image: url("/static/home-bg-light.png");
     }
     body.light .dot-grid::before { opacity: 0.18; }
     body.light .orb-a { background: radial-gradient(circle, rgba(79,141,255,0.15) 0%, transparent 70%); }
@@ -138,12 +144,12 @@
     }
     .brand-mark {
       width: 38px; height: 38px; border-radius: 10px;
-      background: linear-gradient(135deg, var(--blue), var(--cyan));
+      background: transparent;
       display: flex; align-items: center; justify-content: center;
-      box-shadow: 0 0 22px rgba(79,141,255,0.38);
       flex-shrink: 0;
+      overflow: hidden;
     }
-    .brand-mark svg { width: 18px; height: 18px; }
+    .brand-mark img { width: 100%; height: 100%; object-fit: contain; display: block; }
     .brand-name {
       font-family: var(--font-display);
       font-size: 19px; font-weight: 800;
@@ -222,7 +228,7 @@
     }
 
     .hero-desc {
-      font-size: 16px; font-weight: 300; color: var(--ink-2);
+      font-size: 16px; font-weight: 300; color: #fff;
       line-height: 1.78; max-width: 450px; margin-bottom: 34px;
       opacity: 0; animation: rise 0.7s 0.2s var(--ease) forwards;
     }
@@ -235,8 +241,10 @@
       display: inline-flex; align-items: center; gap: 6px;
       font-family: var(--font-mono); font-size: 11px; font-weight: 500;
       padding: 5px 11px; border-radius: var(--r-sm);
-      background: var(--surface); border: 1px solid var(--border-m); color: var(--ink-2);
+      background: var(--surface); border: 1px solid var(--border-m); color: #fff;
     }
+    body.light .hero-desc,
+    body.light .tag { color: #000; }
     .tag-dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
 
     /* ─── Code window ─────────────────────────────────────────────── */
@@ -437,9 +445,7 @@
     <nav>
       <a href="/" class="brand">
         <div class="brand-mark">
-          <svg viewBox="0 0 20 20" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="13 17 18 10 13 3"/><polyline points="7 3 2 10 7 17"/>
-          </svg>
+          <img src="/static/codesync-logo.png" alt="CodeSync" width="38" height="38" />
         </div>
         <div style="display:flex;align-items:baseline;gap:4px;">
           <span class="brand-name">CodeSync</span>

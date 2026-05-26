@@ -244,16 +244,15 @@ function setErrorMarkersFromStderr(stderr) {
   state.lastMarkers = markers;
 }
 
-function outputWrite(text) {
-  $("output").textContent = text || "";
-}
+const term = () => window.CodeSyncTerminal;
 
 async function runCode() {
   const f = state.files.get(state.activePath);
   if (!f) return;
   clearMarkers();
   const code = f.model.getValue();
-  const stdin = $("stdin").value || "";
+  if (term()) term().beforeRun();
+  const stdin = term() ? term().getStdin() : "";
   const language = $("languageSelect").value;
   state.language = language;
 
@@ -263,8 +262,6 @@ async function runCode() {
   btn.textContent = "Running...";
   btn.classList.add("opacity-70");
 
-  outputWrite("");
-
   try {
     const res = await fetch("/api/execute", {
       method: "POST",
@@ -273,20 +270,18 @@ async function runCode() {
     });
     const data = await res.json();
     if (!data.ok) {
-      toast("error", data.error || "Execution failed");
-      outputWrite(data.error || "Execution failed");
+      const errText = term() ? term().formatRunResult(data) : data.error || data.stderr || "Execution failed";
+      const isWaiting = data.status === "WAITING_FOR_INPUT";
+      toast(isWaiting ? "info" : "error", errText);
+      if (term()) term().setRunOutput(errText);
+      if (data.stderr && !isWaiting) setErrorMarkersFromStderr(data.stderr);
       return;
     }
 
     const stdout = data.stdout || "";
     const stderr = data.stderr || "";
     const status = data.status || "";
-
-    const combined =
-      (status ? `Status: ${status}\n\n` : "") +
-      (stdout ? `stdout:\n${stdout}\n\n` : "") +
-      (stderr ? `stderr:\n${stderr}\n` : "");
-    outputWrite(combined.trim() + "\n");
+    if (term()) term().setRunOutput(term().formatRunResult(data));
 
     if (stderr) {
       setErrorMarkersFromStderr(stderr);
@@ -299,7 +294,7 @@ async function runCode() {
     state.execHistory = state.execHistory.slice(0, 30);
   } catch (e) {
     toast("error", String(e));
-    outputWrite(String(e));
+    if (term()) term().setRunOutput(String(e));
   } finally {
     btn.disabled = false;
     btn.textContent = old;
@@ -606,7 +601,7 @@ function saveLocal(showToast = false) {
     language: $("languageSelect").value,
     files: [...state.files.values()].map((x) => ({ path: x.path, content: x.model.getValue() })),
     activePath: state.activePath,
-    stdin: $("stdin").value || "",
+    stdin: term() ? term().getStdin() : "",
     ts: Date.now(),
   };
   localStorage.setItem("codesync:last", JSON.stringify(payload));
@@ -619,7 +614,7 @@ function restoreLocal() {
     if (!raw) return;
     const p = JSON.parse(raw);
     if (p.language) $("languageSelect").value = p.language;
-    if (p.stdin) $("stdin").value = p.stdin;
+    if (p.stdin && term()) term().setStdin(p.stdin);
     if (Array.isArray(p.files)) {
       for (const file of p.files) {
         if (file?.path && typeof file.content === "string") ensureFileModel(file.path, file.content, 0);
@@ -639,7 +634,7 @@ function exportProject() {
     roomId: state.roomId,
     language: $("languageSelect").value,
     files: [...state.files.values()].map((x) => ({ path: x.path, content: x.model.getValue() })),
-    stdin: $("stdin").value || "",
+    stdin: term() ? term().getStdin() : "",
     history: state.execHistory,
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
@@ -705,7 +700,6 @@ function setupEditorSync() {
 function setupUi() {
   $("themeBtn").addEventListener("click", () => setTheme(state.theme === "dark" ? "light" : "dark"));
   $("runBtn").addEventListener("click", runCode);
-  $("clearOutputBtn").addEventListener("click", () => outputWrite(""));
   $("chatSendBtn").addEventListener("click", sendChat);
   $("chatInput").addEventListener("keydown", (e) => {
     if (e.key === "Enter") sendChat();
@@ -793,19 +787,14 @@ function renderTabs() {
   for (const p of paths) {
     const btn = document.createElement("button");
     btn.className =
-      "px-3 py-2 text-sm rounded-xl border " +
-      (p === state.activePath
-        ? "bg-white/10 border-white/20"
-        : state.theme === "dark"
-          ? "glass border-white/10 hover:bg-white/10"
-          : "glass-light border-black/10 hover:bg-black/5");
+      "tab-btn px-3 py-2 text-sm rounded-xl " + (p === state.activePath ? "tab-btn-active" : "");
     btn.textContent = p;
     btn.onclick = () => setActiveFile(p);
     tabs.appendChild(btn);
   }
 
   const plus = document.createElement("button");
-  plus.className = "px-3 py-2 text-sm rounded-xl glass border border-white/10 hover:bg-white/10";
+  plus.className = "tab-btn px-3 py-2 text-sm rounded-xl";
   plus.textContent = "+";
   plus.title = "New file";
   plus.onclick = () => {
@@ -907,6 +896,7 @@ function setupShortcuts() {
 }
 
 function boot() {
+  if (window.CodeSyncTerminal) window.CodeSyncTerminal.init();
   setupUi();
   setupShare();
   setupResizableBottomPanel();
