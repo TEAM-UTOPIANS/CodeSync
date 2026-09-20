@@ -20,7 +20,7 @@
   --green: #5fc474;
   --blue: #82b6ea;
   --on-signal: #10120f;
-  --shadow: 0 10px 22px -10px rgb(0 0 0 / 0.65), 0 1px 3px rgb(0 0 0 / 0.3);
+  --shadow: 0 6px 14px -8px rgb(0 0 0 / 0.6), 0 1px 3px rgb(0 0 0 / 0.3);
   --display: "Barlow Condensed", "Arial Narrow", sans-serif;
   --text: "Barlow", system-ui, -apple-system, "Segoe UI", sans-serif;
   --code: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
@@ -42,7 +42,7 @@
   --green: #17722f;
   --blue: #1f5f9e;
   --on-signal: #ffffff;
-  --shadow: 0 10px 20px -10px rgb(20 23 26 / 0.3), 0 1px 3px rgb(20 23 26 / 0.12);
+  --shadow: 0 6px 14px -8px rgb(20 23 26 / 0.3), 0 1px 3px rgb(20 23 26 / 0.12);
   color-scheme: light;
 }
 /* Fills that carry dark text keep their bright signal colour in both themes. */
