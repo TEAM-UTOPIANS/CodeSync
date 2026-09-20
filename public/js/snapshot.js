@@ -8,16 +8,22 @@ async function pipe(bytes, stream) {
   return new Uint8Array(await out.arrayBuffer());
 }
 
-export async function encodeSnapshot({ lang, code }) {
-  const json = new TextEncoder().encode(JSON.stringify({ l: lang, c: code }));
+/** Snapshot of a whole project: {files: [{name, code}], active}. */
+export async function encodeSnapshot({ files, active }) {
+  const json = new TextEncoder().encode(JSON.stringify({ f: files.map((f) => [f.name, f.code]), a: active }));
   return toB64Url(await pipe(json, new CompressionStream("deflate-raw")));
 }
 
 export async function decodeSnapshot(fragment) {
   try {
     const bytes = await pipe(fromB64Url(fragment), new DecompressionStream("deflate-raw"));
-    const { l, c } = JSON.parse(new TextDecoder().decode(bytes));
-    return typeof c === "string" ? { lang: String(l), code: c } : null;
+    const data = JSON.parse(new TextDecoder().decode(bytes));
+    if (Array.isArray(data.f)) {
+      const files = data.f.filter((x) => typeof x?.[0] === "string" && typeof x?.[1] === "string").map(([name, code]) => ({ name, code }));
+      return files.length ? { files, active: typeof data.a === "string" ? data.a : files[0].name } : null;
+    }
+    // Links made before projects existed: one file and a language id.
+    return typeof data.c === "string" ? { files: [{ name: `main.${data.l === "python" ? "py" : data.l === "javascript" ? "js" : "txt"}`, code: data.c }], active: null } : null;
   } catch {
     return null;
   }

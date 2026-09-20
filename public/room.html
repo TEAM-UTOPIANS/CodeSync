@@ -11,7 +11,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@phosphor-icons/web@2.1.2/src/regular/style.css" />
   <link rel="stylesheet" href="/css/style.css" />
-  <script>try { const t = localStorage.getItem("codesync:theme"); document.documentElement.dataset.theme = t && t !== "system" ? t : (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark"); } catch {}</script>
+  <script>try{const t=localStorage.getItem("codesync:theme");const m={dark:"signal",light:"enamel"};let id=m[t]||t;if(!["signal","enamel","nightmail","loco"].includes(id))id=matchMedia("(prefers-color-scheme: light)").matches?"enamel":"signal";document.documentElement.dataset.theme=id}catch{document.documentElement.dataset.theme="signal"}</script>
   <script src="/config.js"></script>
 </head>
 <body>
@@ -20,8 +20,9 @@
     <a class="wordmark" href="/" title="Home" aria-label="CodeSync home"><span class="mark" aria-hidden="true"><i></i><i></i><i></i></span></a>
     <span class="room-id" id="room-id" title="Room"><i class="ph ph-broadcast"></i><span id="room-name"></span></span>
     <span class="role-plate role-badge" id="role-badge" hidden></span>
+    <span class="mode-tag" id="mode-tag" hidden title="Roles, passcodes and checkpoints need the room server">Peer to peer</span>
     <button class="btn lang-btn" id="lang-btn" aria-haspopup="dialog" title="Change language"><span id="lang-icon"></span><span id="lang-label">Language</span><i class="ph ph-caret-down caret"></i></button>
-    <button class="btn go" id="run" title="Run"><i class="ph ph-play"></i><span id="run-label">Run</span><kbd class="hide-md" id="run-kbd"></kbd></button>
+    <button class="btn go" id="run" title="Run"><i class="lamp" id="run-lamp"></i><i class="ph ph-play"></i><span id="run-label">Run</span><kbd class="hide-md" id="run-kbd"></kbd></button>
     <span class="spacer"></span>
     <button class="btn" id="share-btn" aria-haspopup="menu"><i class="ph ph-share-network"></i><span class="hide-md">Share</span></button>
     <button class="btn icon ghost hide-sm" id="palette-btn" title="Command palette" aria-label="Command palette"><i class="ph ph-command"></i></button>
@@ -33,10 +34,11 @@
   <div class="workspace" id="workspace">
     <section class="main" id="main">
       <div class="editor-col">
+      <div class="filebar" id="filebar" role="tablist" aria-label="Project files"></div>
       <div class="banner" id="banner" hidden><b id="banner-title"></b><span id="banner-text"></span><button class="btn sm" id="banner-action" hidden></button></div>
       <div class="editor-wrap">
         <div id="editor"></div>
-        <div class="loading" id="loading">Loading editor</div>
+        <div class="loading" id="loading"><div class="signal-head"><i></i><i></i><i></i></div><span>Preparing the line</span></div>
         <div class="follow" id="follow" hidden><span id="follow-text"></span><button class="btn sm" id="follow-stop">Stop <kbd>Esc</kbd></button></div>
       </div>
       </div>
@@ -97,7 +99,7 @@
     </aside>
   </div>
 
-  <footer class="status">
+  <footer class="status" id="status">
     <span id="conn"><i class="lamp" id="conn-lamp"></i><span id="conn-text">Starting</span></span>
     <span class="spacer"></span>
     <span id="runtime-info" class="hide-sm"></span>
@@ -118,7 +120,7 @@
   <label>Word wrap <input type="checkbox" id="set-wrap" /></label>
   <label>Minimap <input type="checkbox" id="set-minimap" /></label>
   <label>Font ligatures <input type="checkbox" id="set-ligatures" /></label>
-  <label>Theme <select id="set-theme"><option value="system">System</option><option value="dark">Dark</option><option value="light">Light</option></select></label>
+  <label>Theme <select id="set-theme"></select></label>
 </div>
 <input type="file" id="file-input" hidden />
 

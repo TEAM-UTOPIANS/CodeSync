@@ -33,11 +33,17 @@ export default async function handler(req, res) {
   }
 
   const body = typeof req.body === "string" ? safeParse(req.body) : req.body;
-  const { language, code, stdin = "" } = body ?? {};
+  const { language, code, stdin = "", files = [] } = body ?? {};
   if (typeof language !== "string" || !(language in REMOTE)) return res.status(400).json({ error: "Unsupported language." });
   if (typeof code !== "string" || !code.trim()) return res.status(400).json({ error: "No code to run." });
   if (code.length > MAX_CODE) return res.status(413).json({ error: `Code is larger than ${MAX_CODE / 1024} KB.` });
   if (typeof stdin !== "string" || stdin.length > MAX_STDIN) return res.status(413).json({ error: `Input is larger than ${MAX_STDIN / 1024} KB.` });
+
+  if (!Array.isArray(files) || files.length > 12
+    || files.some((f) => typeof f?.name !== "string" || !/^[\w][\w .-]{0,59}$/.test(f.name) || typeof f.code !== "string")
+    || files.reduce((n, f) => n + f.code.length, 0) > MAX_CODE * 2) {
+    return res.status(400).json({ error: "Invalid project files." });
+  }
 
   const ip = String(req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "unknown").split(",")[0].trim();
   if (!allow(ip)) {
@@ -48,7 +54,7 @@ export default async function handler(req, res) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
   try {
-    const result = await executeRemote(language, code, stdin, { signal: ctrl.signal });
+    const result = await executeRemote(language, code, stdin, { signal: ctrl.signal, files });
     return res.status(200).json({ ...result, stdout: clip(result.stdout), stderr: clip(result.stderr), compileOutput: clip(result.compileOutput) });
   } catch (e) {
     const timedOut = ctrl.signal.aborted;

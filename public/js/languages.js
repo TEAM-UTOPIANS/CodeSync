@@ -26,7 +26,7 @@ print(f"Hello, {name}!")
 for i in range(1, 6):
     print(f"{i} squared is {i * i}")
 ` }),
-  minilang: L("minilang", "MiniLang", { runtime: "browser", group: "In your browser", ext: "ml", template: `# MiniLang: a tiny teaching language.
+  minilang: L("minilang", "MiniLang", { runtime: "browser", group: "In your browser", ext: "mini", template: `# MiniLang: a tiny teaching language.
 START
 PRINT "Enter your name:"
 INPUT name
@@ -341,3 +341,12 @@ export const LANGUAGE_IDS = Object.keys(LANGUAGES);
 export const GROUPS = ["In your browser", "Compiled", "JVM and .NET", "Scripting", "Functional and data"];
 export const byGroup = () => GROUPS.map((g) => [g, LANGUAGE_IDS.filter((id) => LANGUAGES[id].group === g).map((id) => LANGUAGES[id])]);
 export const fileName = (id) => `main.${LANGUAGES[id].ext}`;
+
+/* ── Files: extension <-> language ───────────────────────────────── */
+export const EXT_TO_LANG = {};
+for (const l of Object.values(LANGUAGES)) EXT_TO_LANG[l.ext] ??= l.id;
+const PLAIN_EXT = { css: "css", json: "json", md: "markdown", txt: "plaintext", h: "c", hpp: "cpp", yml: "yaml", yaml: "yaml", csv: "plaintext" };
+export const extOf = (name) => (name.includes(".") ? name.split(".").pop().toLowerCase() : "");
+export const languageForFile = (name) => EXT_TO_LANG[extOf(name)] ?? null;
+export const monacoForFile = (name) => { const id = languageForFile(name); return id ? LANGUAGES[id].monaco : PLAIN_EXT[extOf(name)] ?? "plaintext"; };
+export const validFileName = (name) => /^[\w][\w .-]{0,59}$/.test(name);

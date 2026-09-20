@@ -90,3 +90,15 @@ test("falls back to the other provider when the first fails", async () => {
 test("rejects unknown languages", async () => {
   await assert.rejects(() => executeRemote("brainfudge", "+", "", { fetchImpl: async () => json({}) }), /Unsupported/);
 });
+
+test("extra project files are sent to Wandbox as codes", async () => {
+  let body;
+  const fetchImpl = async (url, init) => {
+    if (String(url).endsWith("list.json")) return json([{ name: "gcc-13.2.0-c", language: "C" }]);
+    body = JSON.parse(init.body);
+    return json({ status: "0", program_output: "ok" });
+  };
+  await executeRemote("c", "int main(){}", "", { fetchImpl, files: [{ name: "util.h", code: "#define X 1" }] });
+  assert.deepEqual(body.codes, [{ file: "util.h", code: "#define X 1" }]);
+  assert.match(body["compiler-option-raw"], /-I\./);
+});

@@ -12,6 +12,7 @@ const fromB64 = (b64) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
 
 /** Where the Socket.IO server lives. Set by config.js in production; localhost defaults to :3001. */
 export function serverUrl() {
+  if (new URLSearchParams(location.search).has("p2p")) return ""; // ?p2p forces the serverless peer-to-peer mode
   const configured = window.CODESYNC?.socketUrl;
   if (configured) return configured.replace(/\/$/, "");
   if (["localhost", "127.0.0.1"].includes(location.hostname)) return `http://${location.hostname}:3001`;

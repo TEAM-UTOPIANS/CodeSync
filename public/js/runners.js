@@ -16,7 +16,7 @@ const REMOTE_TIMEOUT_MS = 65_000;
 let pyWorker = null;
 let pyWarm = false;
 
-function runInWorker(lang, code, stdin, { write, status }) {
+function runInWorker(lang, code, stdin, { write, status }, files) {
   return new Promise((resolve) => {
     const isPy = lang === "python";
     let worker = isPy ? pyWorker : null;
@@ -52,7 +52,7 @@ function runInWorker(lang, code, stdin, { write, status }) {
       write(`${e.message || "Worker error"}\n`, "stderr");
       resolve({ ok: false });
     };
-    worker.postMessage({ code, stdin });
+    worker.postMessage({ code, stdin, files });
   });
 }
 
@@ -60,7 +60,7 @@ function runInWorker(lang, code, stdin, { write, status }) {
 
 class Rejected extends Error {}
 
-async function callRemote(id, code, stdin) {
+async function callRemote(id, code, stdin, files) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), REMOTE_TIMEOUT_MS);
   try {
@@ -69,14 +69,14 @@ async function callRemote(id, code, stdin) {
       res = await fetch("/api/execute", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ language: id, code, stdin }),
+        body: JSON.stringify({ language: id, code, stdin, files }),
         signal: ctrl.signal,
       });
     } catch (e) { if (ctrl.signal.aborted) throw e; }
     if (res?.ok) return await res.json();
     if (res && [400, 413, 429].includes(res.status)) throw new Rejected((await res.json().catch(() => ({}))).error || "The request was rejected.");
     // The function is missing (static hosting) or its upstream failed: ask the services directly.
-    return await executeRemote(id, code, stdin, { signal: ctrl.signal });
+    return await executeRemote(id, code, stdin, { signal: ctrl.signal, files });
   } finally {
     clearTimeout(timer);
   }
@@ -97,11 +97,11 @@ function diagnosticFrom(text) {
   return null;
 }
 
-async function runRemote(id, code, stdin, { write, status }) {
+async function runRemote(id, code, stdin, { write, status }, files) {
   status?.(`Building and running ${LANGUAGES[id].label}…`);
   let r;
   try {
-    r = await callRemote(id, code, stdin);
+    r = await callRemote(id, code, stdin, files);
   } catch (e) {
     const message = e instanceof Rejected ? e.message
       : e.name === "AbortError" ? "The compiler service took too long to respond."
@@ -125,10 +125,10 @@ async function runRemote(id, code, stdin, { write, status }) {
 /* ── Public API ──────────────────────────────────────────────────── */
 
 /**
- * Run code. Output streams through hooks.write(text, "stdout"|"stderr"|"meta").
+ * Run code. `files` are the project's other files ({name, code}). Output streams through hooks.write(text, "stdout"|"stderr"|"meta").
  * Resolves {ok, error?: {line, col, message}, meta?: {provider, version, timeMs, exitCode}, preview?: true}.
  */
-export async function runCode(id, code, stdin, hooks) {
+export async function runCode(id, code, stdin, hooks, files = []) {
   const lang = LANGUAGES[id];
   if (lang.runtime === "preview") return { ok: true, preview: true };
   if (id === "minilang") {
@@ -141,6 +141,6 @@ export async function runCode(id, code, stdin, hooks) {
     if (!r.ok) hooks.write(`${r.error.message}\n`, "stderr");
     return { ok: r.ok, error: r.error };
   }
-  if (lang.runtime === "browser") return runInWorker(id, code, stdin, hooks);
-  return runRemote(id, code, stdin, hooks);
+  if (lang.runtime === "browser") return runInWorker(id, code, stdin, hooks, files);
+  return runRemote(id, code, stdin, hooks, files);
 }

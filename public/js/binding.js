@@ -1,8 +1,7 @@
 // Two-way binding between a Monaco text model and a Y.Text, plus remote cursors/selections.
 const LOCAL = Symbol("local");
 
-export function bindEditor(monaco, editor, ytext, isEditable = () => true) {
-  const model = editor.getModel();
+export function bindModel(monaco, model, ytext, isEditable = () => true) {
   model.setEOL(monaco.editor.EndOfLineSequence.LF);
   let applyingRemote = false;
 
@@ -48,7 +47,7 @@ export function bindEditor(monaco, editor, ytext, isEditable = () => true) {
   ytext.observe(observer);
 
   return {
-    /** Replace the whole document through Yjs (used when switching language templates). */
+    /** Replace the whole text through Yjs (used when switching language templates). */
     setText(text) {
       ytext.doc.transact(() => {
         ytext.delete(0, ytext.length);
@@ -61,58 +60,57 @@ export function bindEditor(monaco, editor, ytext, isEditable = () => true) {
   };
 }
 
-/** Renders other people's cursors and selections as Monaco decorations. */
-export function createRemoteCursors(monaco, editor) {
-  const model = editor.getModel();
+/** Renders other people's cursors and selections as Monaco decorations, only for the file shown. */
+export function createRemoteCursors(monaco, editor, getActiveFile) {
   const style = document.head.appendChild(document.createElement("style"));
-  const known = new Map(); // peerId -> {name, color}
+  const state = new Map(); // peerId -> {name, color, sel}
   const collections = new Map(); // peerId -> decorations collection
   const cssId = (peerId) => peerId.replace(/[^a-zA-Z0-9]/g, "");
   const safeName = (n) => String(n).replace(/[^\p{L}\p{N} _.-]/gu, "").slice(0, 24) || "Guest";
+  const safeColor = (c) => (/^#[0-9a-f]{6}$/i.test(c) ? c : "#7fb7f5");
 
   const rebuildStyles = () => {
-    style.textContent = [...known].map(([id, { name, color }]) => {
-      const c = cssId(id);
-      return `.rc-${c}{position:relative;border-left:2px solid ${color};margin-left:-1px}` +
-        `.rc-${c}::before{content:"${safeName(name)}";position:absolute;transform:translateY(-100%);background:${color};color:#fff;font:600 10px/1 Geist,system-ui,sans-serif;padding:2px 5px;border-radius:3px 3px 3px 0;white-space:nowrap;pointer-events:none}` +
-        `.rs-${c}{background:${color}33}`;
+    style.textContent = [...state].map(([id, { name, color }]) => {
+      const c = cssId(id), col = safeColor(color);
+      return `.rc-${c}{position:relative;border-left:2px solid ${col};margin-left:-1px}` +
+        `.rc-${c}::before{content:"${safeName(name)}";position:absolute;transform:translateY(-100%);background:${col};color:#10120f;font:700 10px/1 "Barlow Condensed",system-ui,sans-serif;letter-spacing:.06em;text-transform:uppercase;padding:2px 5px;border-radius:2px 2px 2px 0;white-space:nowrap;pointer-events:none}` +
+        `.rs-${c}{background:${col}33}`;
     }).join("\n");
   };
 
-  const safeColor = (c) => (/^#[0-9a-f]{6}$/i.test(c) ? c : "#4f8dff");
-  const clamp = (n) => Math.max(0, Math.min(model.getValueLength(), Number.isFinite(n) ? n : 0));
+  function render(peerId) {
+    const s = state.get(peerId);
+    const coll = collections.get(peerId);
+    const model = editor.getModel();
+    if (!s?.sel || !model || (s.sel.file ?? "") !== getActiveFile()) { coll?.clear(); return; }
+    const clamp = (n) => Math.max(0, Math.min(model.getValueLength(), Number.isFinite(n) ? n : 0));
+    const a = model.getPositionAt(clamp(s.sel.anchor)), h = model.getPositionAt(clamp(s.sel.head));
+    const c = cssId(peerId);
+    const decorations = [{
+      range: new monaco.Range(h.lineNumber, h.column, h.lineNumber, h.column),
+      options: { afterContentClassName: `rc-${c}`, stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges },
+    }];
+    if (a.lineNumber !== h.lineNumber || a.column !== h.column) {
+      decorations.push({ range: new monaco.Range(a.lineNumber, a.column, h.lineNumber, h.column), options: { className: `rs-${c}` } });
+    }
+    (collections.get(peerId) ?? collections.set(peerId, editor.createDecorationsCollection()).get(peerId)).set(decorations);
+  }
 
   return {
-    update(peerId, state) {
-      let coll = collections.get(peerId);
-      if (!state) {
-        coll?.clear();
+    update(peerId, next) {
+      if (!next) {
+        collections.get(peerId)?.clear();
         collections.delete(peerId);
-        known.delete(peerId);
+        state.delete(peerId);
         rebuildStyles();
         return;
       }
-      const prev = known.get(peerId);
-      const color = safeColor(state.color);
-      if (!prev || prev.name !== state.name || prev.color !== color) {
-        known.set(peerId, { name: state.name, color });
-        rebuildStyles();
-      }
-      if (!state.sel) return;
-      if (!coll) collections.set(peerId, (coll = editor.createDecorationsCollection()));
-      const a = model.getPositionAt(clamp(state.sel.anchor)), h = model.getPositionAt(clamp(state.sel.head));
-      const c = cssId(peerId);
-      const decorations = [{
-        range: new monaco.Range(h.lineNumber, h.column, h.lineNumber, h.column),
-        options: { afterContentClassName: `rc-${c}`, stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges },
-      }];
-      if (a.lineNumber !== h.lineNumber || a.column !== h.column) {
-        decorations.push({
-          range: new monaco.Range(a.lineNumber, a.column, h.lineNumber, h.column),
-          options: { className: `rs-${c}` },
-        });
-      }
-      coll.set(decorations);
+      const prev = state.get(peerId);
+      state.set(peerId, next);
+      if (!prev || prev.name !== next.name || prev.color !== next.color) rebuildStyles();
+      render(peerId);
     },
+    /** Call after switching files so cursors appear only where their owner is. */
+    refresh() { for (const id of state.keys()) render(id); },
   };
 }

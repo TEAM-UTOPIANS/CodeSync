@@ -1,8 +1,12 @@
 import { Y, persist, connectRoom, serverUrl } from "./net.js";
-import { bindEditor, createRemoteCursors } from "./binding.js";
-import { LANGUAGES, LANGUAGE_IDS, GROUPS, fileName } from "./languages.js";
+import { connectPeers } from "./p2p.js";
+import { createRemoteCursors } from "./binding.js";
+import { createProject, MAX_FILES } from "./project.js";
+import { LANGUAGES, LANGUAGE_IDS, GROUPS, languageForFile, extOf, validFileName } from "./languages.js";
 import { runCode } from "./runners.js";
+import { buildPreview, previewEntry } from "./preview.js";
 import { encodeSnapshot, decodeSnapshot } from "./snapshot.js";
+import { THEMES, savedPreference, resolveTheme, setTheme, defineMonacoTheme } from "./themes.js";
 import { toast, langTile, anchorMenu, createPalette } from "./ui.js";
 
 const $ = (id) => document.getElementById(id);
@@ -20,8 +24,9 @@ const el = (tag, className, text) => {
   return node;
 };
 const icon = (name) => el("i", `ph ${name}`);
+const BASE_NAME = "main";
 
-/* ── Mode: /r/<room> (shared, needs the room server) or /play (local) ── */
+/* ── Mode: /r/<room> (shared) or /play (local) ───────────────────── */
 const roomMatch = location.pathname.match(/^\/r\/([a-z0-9-]{4,40})\/?$/i);
 const solo = !roomMatch;
 if (solo && !location.pathname.startsWith("/play")) location.replace("/");
@@ -30,6 +35,7 @@ const snapMatch = solo ? location.hash.match(/[#&]s=([\w-]+)/) : null;
 const snapFragment = snapMatch ? snapMatch[1] : null;
 const hash32 = (s) => { let h = 5381; for (const c of s) h = ((h << 5) + h + c.charCodeAt(0)) >>> 0; return h.toString(16); };
 const docKey = solo ? (snapFragment ? `snap-${hash32(snapFragment)}` : "solo") : roomId;
+const useServer = !solo && Boolean(serverUrl());
 
 $("room-name").textContent = solo ? (snapFragment ? "snapshot" : "playground") : roomId;
 $("room-id").querySelector("i").className = `ph ${solo ? "ph-laptop" : "ph-broadcast"}`;
@@ -40,19 +46,19 @@ if (solo) { $("workspace").classList.add("side-closed"); $("side-toggle").hidden
 /* ── Settings and theme ──────────────────────────────────────────── */
 const settings = { fontSize: 14, wrap: false, minimap: false, ligatures: true, ...JSON.parse(store.get("settings") || "{}") };
 const saveSettings = () => store.set("settings", JSON.stringify(settings));
-let themeMode = store.get("theme") || "system";
 let monacoRef = null;
-const systemDark = matchMedia("(prefers-color-scheme: dark)");
-const resolvedTheme = () => (themeMode === "system" ? (systemDark.matches ? "dark" : "light") : themeMode);
-function applyTheme() {
-  document.documentElement.dataset.theme = resolvedTheme();
-  monacoRef?.editor.setTheme(resolvedTheme() === "light" ? "sb-light" : "sb-dark");
-  $("set-theme").value = themeMode;
-}
-function setThemeMode(mode) { themeMode = mode; store.set("theme", mode); applyTheme(); }
-systemDark.addEventListener("change", () => { if (themeMode === "system") applyTheme(); });
-$("theme").addEventListener("click", () => setThemeMode(resolvedTheme() === "light" ? "dark" : "light"));
-$("set-theme").addEventListener("change", (e) => setThemeMode(e.target.value));
+const themeSelect = $("set-theme");
+themeSelect.append(new Option("Match system", "system"), ...THEMES.map((t) => new Option(t.label, t.id)));
+const syncThemeUi = () => { themeSelect.value = THEMES.some((t) => t.id === savedPreference()) ? savedPreference() : "system"; };
+syncThemeUi();
+document.addEventListener("themechange", () => { if (monacoRef) defineMonacoTheme(monacoRef); syncThemeUi(); });
+matchMedia("(prefers-color-scheme: light)").addEventListener("change", () => { if (savedPreference() === "system") setTheme("system"); });
+themeSelect.addEventListener("change", (e) => setTheme(e.target.value));
+$("theme").addEventListener("click", () => {
+  const ids = THEMES.map((t) => t.id);
+  setTheme(ids[(ids.indexOf(document.documentElement.dataset.theme) + 1) % ids.length]);
+  toast(`${THEMES.find((t) => t.id === document.documentElement.dataset.theme).label} theme`, "ph-palette");
+});
 
 /* ── Monaco ──────────────────────────────────────────────────────── */
 const MONACO_BASE = "https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min";
@@ -63,43 +69,6 @@ function loadMonaco() {
   };
   window.require.config({ paths: { vs: `${MONACO_BASE}/vs` } });
   return new Promise((resolve, reject) => window.require(["vs/editor/editor.main"], () => resolve(window.monaco), reject));
-}
-
-function defineThemes(monaco) {
-  monaco.editor.defineTheme("sb-dark", {
-    base: "vs-dark", inherit: true,
-    rules: [
-      { token: "comment", foreground: "6f7880", fontStyle: "italic" },
-      { token: "keyword", foreground: "f5b83c" },
-      { token: "string", foreground: "8fd19e" },
-      { token: "number", foreground: "82b6ea" },
-      { token: "type", foreground: "ef9a86" },
-      { token: "operator", foreground: "aab0b5" },
-    ],
-    colors: {
-      "editor.background": "#101315", "editor.foreground": "#ebe8df",
-      "editorLineNumber.foreground": "#4c555c", "editorLineNumber.activeForeground": "#aab0b5",
-      "editor.lineHighlightBackground": "#ffffff08", "editor.selectionBackground": "#f5b83c30",
-      "editorCursor.foreground": "#f5b83c", "editorIndentGuide.background1": "#22282d",
-      "editorWidget.background": "#1b1f23", "scrollbarSlider.background": "#ffffff14",
-    },
-  });
-  monaco.editor.defineTheme("sb-light", {
-    base: "vs", inherit: true,
-    rules: [
-      { token: "comment", foreground: "5e676d", fontStyle: "italic" },
-      { token: "keyword", foreground: "8a5a00" },
-      { token: "string", foreground: "17722f" },
-      { token: "number", foreground: "1f5f9e" },
-      { token: "type", foreground: "b8321d" },
-    ],
-    colors: {
-      "editor.background": "#ffffff", "editor.foreground": "#14171a",
-      "editorLineNumber.foreground": "#8b949a", "editorLineNumber.activeForeground": "#454d53",
-      "editor.lineHighlightBackground": "#00000006", "editor.selectionBackground": "#f0b42942",
-      "editorCursor.foreground": "#8a5a00",
-    },
-  });
 }
 
 function registerMiniLang(monaco) {
@@ -169,13 +138,11 @@ async function main() {
   const myName = solo ? store.get("name") || "You" : await askName();
   const monaco = await monacoReady;
   monacoRef = monaco;
-  defineThemes(monaco);
   registerMiniLang(monaco);
   $("loading").remove();
 
   const editor = monaco.editor.create($("editor"), {
-    value: "", language: "plaintext",
-    theme: resolvedTheme() === "light" ? "sb-light" : "sb-dark",
+    model: null,
     automaticLayout: true,
     fontFamily: '"JetBrains Mono", ui-monospace, Menlo, Consolas, monospace',
     fontSize: settings.fontSize, fontLigatures: settings.ligatures,
@@ -185,15 +152,32 @@ async function main() {
     bracketPairColorization: { enabled: true },
     readOnlyMessage: { value: "You are a viewer. Ask the host for edit access." },
   });
-  applyTheme();
-  const model = editor.getModel();
+  defineMonacoTheme(monaco);
 
-  /* Document ----------------------------------------------------- */
+  /* State -------------------------------------------------------- */
+  let role = solo ? null : useServer ? "viewer" : "editor"; // until the server answers, assume least privilege
+  let users = [];
+  let settingsState = { defaultRole: "editor", locked: false, hasPasscode: false };
+  let connection = solo ? "local" : "connecting";
+  let p2pMode = false;
+  let p2pNoticeDismissed = false;
+  let net = null;
+  let myId = null;
+  let requested = false;
+  const requests = new Map();
+  const canEdit = () => solo || role === "host" || role === "editor";
+
+  /* Document and project ---------------------------------------- */
   const doc = new Y.Doc();
   persist(doc, docKey);
-  const ytext = doc.getText("code");
-  const meta = doc.getMap("meta");
-  const binding = bindEditor(monaco, editor, ytext, () => canEdit());
+  let previewTimer;
+  const project = createProject({
+    doc, monaco, editor, isEditable: () => canEdit(),
+    onTabs: () => { renderTabs(); refreshFileState(); },
+    onActive: () => { refreshFileState(); cursors.refresh(); sendSelection(); },
+    onChange: () => { clearTimeout(previewTimer); previewTimer = setTimeout(updatePreview, 350); },
+  });
+  const cursors = createRemoteCursors(monaco, editor, () => project.active ?? "");
 
   /* Console tabs ------------------------------------------------- */
   const panes = { output: $("output"), stdin: $("stdin-pane"), preview: $("preview-pane") };
@@ -207,63 +191,151 @@ async function main() {
   }
   for (const key of Object.keys(panes)) $(`tab-${key}`).addEventListener("click", () => selectTab(key));
 
-  /* Language ----------------------------------------------------- */
-  let lang = LANGUAGES[meta.get("language")] ? meta.get("language") : "python";
+  /* Files, language, preview ------------------------------------ */
   let remoteInfo = {};
+  const fileLang = (name) => languageForFile(name);
   const runtimeLabel = (id) => {
+    if (!id) return "Plain text";
     const l = LANGUAGES[id];
     if (l.runtime === "browser") return "Runs in your browser";
     if (l.runtime === "preview") return "Live preview";
     const info = remoteInfo[id];
     return info ? `${info.provider} ${info.version}` : "Compiles on a remote service";
   };
-  const updatePreview = () => { $("preview").srcdoc = model.getValue(); };
+  const currentEntry = () => previewEntry(project.all(), project.active ?? "");
 
-  function applyLanguage(id) {
-    lang = id;
-    const l = LANGUAGES[id];
-    monaco.editor.setModelLanguage(model, l.monaco);
-    $("lang-icon").replaceChildren(langTile(l, 20));
-    $("lang-label").textContent = l.label;
-    $("lang-status").textContent = l.label;
-    $("runtime-info").textContent = runtimeLabel(id);
-    const html = l.runtime === "preview";
-    $("tab-preview").hidden = !html;
-    if (html) { selectTab("preview"); updatePreview(); } else if (currentTab === "preview") selectTab("output");
-    if (l.stdin && !$("stdin").value) $("stdin").value = l.stdin;
+  function updatePreview() {
+    const entry = currentEntry();
+    $("tab-preview").hidden = !entry;
+    if (!entry) { if (currentTab === "preview") selectTab("output"); return; }
+    $("preview").srcdoc = buildPreview(project.all(), entry);
   }
+
+  let lastLang = null;
+  function refreshFileState() {
+    const name = project.active;
+    if (!name) return;
+    const id = fileLang(name);
+    const l = id ? LANGUAGES[id] : null;
+    $("lang-icon").replaceChildren(l ? langTile(l, 20) : Object.assign(icon("ph-file-text"), {}));
+    $("lang-label").textContent = l ? l.label : "Plain text";
+    $("lang-status").textContent = name;
+    $("runtime-info").textContent = runtimeLabel(id);
+    if (l?.stdin && !$("stdin").value) $("stdin").value = l.stdin;
+    if (id !== lastLang) {
+      lastLang = id;
+      if (id && LANGUAGES[id].runtime === "preview") selectTab("preview");
+    }
+    updatePreview();
+  }
+
+  /* Tabs --------------------------------------------------------- */
+  const filebar = $("filebar");
+  function inlineName(initial, onDone, anchorBefore = null) {
+    const input = el("input", "field file-input");
+    input.value = initial;
+    input.setAttribute("aria-label", "File name");
+    let done = false;
+    const finish = (commit) => {
+      if (done) return;
+      done = true;
+      const value = input.value.trim();
+      input.remove();
+      if (commit && value && value !== initial) onDone(value);
+      renderTabs();
+    };
+    input.addEventListener("keydown", (e) => { if (e.key === "Enter") finish(true); else if (e.key === "Escape") finish(false); });
+    input.addEventListener("blur", () => finish(true));
+    if (anchorBefore) filebar.insertBefore(input, anchorBefore); else filebar.append(input);
+    input.focus();
+    input.select();
+  }
+  function fileError(name) {
+    if (!validFileName(name)) toast("Use letters, numbers, dots, dashes and spaces (no slashes)", "ph-warning");
+    else if (project.has(name)) toast(`${name} already exists`, "ph-warning");
+    else toast(`A project can hold ${MAX_FILES} files`, "ph-warning");
+  }
+  function newFile() {
+    if (!canEdit()) return;
+    const id = fileLang(project.active) ?? "python";
+    const suggestion = (() => { let i = 1, n; do { n = `file${i++}.${LANGUAGES[id].ext}`; } while (project.has(n)); return n; })();
+    inlineName("", (name) => { if (!project.create(name, "")) fileError(name); }, filebar.querySelector(".file-new"));
+    filebar.querySelector(".file-input").placeholder = suggestion;
+  }
+  function renderTabs() {
+    filebar.replaceChildren();
+    const editable = canEdit();
+    for (const name of project.names()) {
+      const tab = el("button", "file");
+      tab.setAttribute("role", "tab");
+      tab.setAttribute("aria-selected", String(name === project.active));
+      tab.title = editable ? "Double-click to rename" : name;
+      const id = fileLang(name);
+      tab.append(id ? langTile(LANGUAGES[id], 16) : icon("ph-file-text"), el("span", "", name));
+      tab.addEventListener("click", () => { project.open(name); editor.focus(); });
+      if (editable) {
+        tab.addEventListener("dblclick", () => {
+          tab.remove();
+          inlineName(name, (to) => { if (!project.rename(name, to)) fileError(to); });
+        });
+        if (project.names().length > 1) {
+          const x = el("button", "x");
+          x.setAttribute("aria-label", `Close ${name}`);
+          x.title = "Delete file";
+          x.append(icon("ph-x"));
+          x.addEventListener("click", (e) => {
+            e.stopPropagation();
+            if (confirm(`Delete ${name} for everyone in the project?`)) project.remove(name);
+          });
+          tab.append(x);
+        }
+      }
+      filebar.append(tab);
+    }
+    if (editable && project.names().length < MAX_FILES) {
+      const add = el("button", "file-new");
+      add.title = "New file";
+      add.setAttribute("aria-label", "New file");
+      add.append(icon("ph-plus"));
+      add.addEventListener("click", newFile);
+      filebar.append(add);
+    }
+  }
+
+  /* Changing the language of the open file renames its extension. */
   function setLanguage(id) {
-    if (id === lang) return;
+    const name = project.active;
+    if (!name) return;
     if (!canEdit()) { toast("Only editors can change the language", "ph-lock-simple"); return; }
-    const untouched = !model.getValue().trim() || model.getValue().trim() === LANGUAGES[lang].template.trim();
-    if (untouched) binding.setText(LANGUAGES[id].template);
-    applyLanguage(id);
-    meta.set("language", id);
+    const current = fileLang(name);
+    if (current === id) return;
+    const base = name.includes(".") ? name.slice(0, name.lastIndexOf(".")) : name;
+    const target = `${base}.${LANGUAGES[id].ext}`;
+    if (project.has(target)) { toast(`${target} already exists`, "ph-warning"); return; }
+    const text = project.text(name).trim();
+    const untouched = !text || (current && text === LANGUAGES[current].template.trim());
+    if (!project.rename(name, target)) { fileError(target); return; }
+    if (untouched) project.setText(target, LANGUAGES[id].template);
     $("stdin").value = LANGUAGES[id].stdin || "";
   }
-  meta.observe(() => { const id = meta.get("language"); if (LANGUAGES[id] && id !== lang) applyLanguage(id); });
+
+  async function seedProject() {
+    if (project.names().length) return;
+    const snap = snapFragment ? await decodeSnapshot(snapFragment) : null;
+    if (snap) {
+      for (const f of snap.files) project.create(f.name, f.code);
+      if (snap.active && project.has(snap.active)) project.open(snap.active);
+      toast("Opened a shared snapshot", "ph-camera");
+    } else {
+      project.create(`${BASE_NAME}.${LANGUAGES.python.ext}`, LANGUAGES.python.template);
+    }
+  }
+
   fetch("/api/languages").then((r) => (r.ok ? r.json() : null)).then((j) => {
     if (!j?.languages) return;
     remoteInfo = j.languages;
-    $("runtime-info").textContent = runtimeLabel(lang);
+    refreshFileState();
   }).catch(() => {});
-
-  let previewTimer;
-  model.onDidChangeContent(() => {
-    monaco.editor.setModelMarkers(model, "run", []);
-    if (LANGUAGES[lang].runtime !== "preview") return;
-    clearTimeout(previewTimer);
-    previewTimer = setTimeout(updatePreview, 350);
-  });
-
-  async function seed() {
-    if (ytext.length > 0) return;
-    const snap = snapFragment ? await decodeSnapshot(snapFragment) : null;
-    if (snap && LANGUAGES[snap.lang]) { lang = snap.lang; binding.setText(snap.code); toast("Opened a shared snapshot", "ph-camera"); }
-    else binding.setText(LANGUAGES[lang].template);
-    meta.set("language", lang);
-    applyLanguage(lang);
-  }
 
   /* Output ------------------------------------------------------- */
   const out = $("output");
@@ -290,45 +362,59 @@ async function main() {
     out.scrollTop = out.scrollHeight;
   }
   clearOutput();
-  $("clear").addEventListener("click", () => { clearOutput(); monaco.editor.setModelMarkers(model, "run", []); });
+  $("clear").addEventListener("click", () => { clearOutput(); monaco.editor.setModelMarkers(editor.getModel(), "run", []); });
   $("copy-output").addEventListener("click", async () => {
     try { await navigator.clipboard.writeText(segments.map(([t]) => t).join("")); toast("Output copied"); } catch { toast("Could not copy", "ph-warning"); }
   });
+  editor.onDidChangeModelContent(() => monaco.editor.setModelMarkers(editor.getModel(), "run", []));
 
   /* Running code ------------------------------------------------- */
   const runBtn = $("run");
   let running = false;
   async function run() {
-    if (running) return;
-    const id = lang, l = LANGUAGES[id];
-    if (l.runtime === "preview") { updatePreview(); selectTab("preview"); toast("Preview refreshed", "ph-browser"); return; }
+    if (running || !project.active) return;
+    const name = project.active;
+    const id = fileLang(name);
+    const files = project.all();
+    if (!id || LANGUAGES[id].runtime === "preview") {
+      const entry = previewEntry(files, name);
+      if (!entry) { toast("This file type cannot be run. Open a code file.", "ph-warning"); return; }
+      updatePreview(); selectTab("preview"); toast("Preview refreshed", "ph-browser");
+      return;
+    }
+    const l = LANGUAGES[id];
     running = true;
     runBtn.disabled = true;
+    runBtn.className = "btn go running";
+    $("status").classList.add("busy");
     $("run-label").textContent = "Running";
     clearOutput();
     showSkeleton();
     setAspect("Running", "running");
-    monaco.editor.setModelMarkers(model, "run", []);
+    monaco.editor.setModelMarkers(editor.getModel(), "run", []);
     selectTab("output");
     const t0 = performance.now();
     let result = { ok: false };
     try {
-      result = await runCode(id, model.getValue(), $("stdin").value, { write, status: (t) => setAspect(t, "running") });
+      result = await runCode(id, project.text(name), $("stdin").value, { write, status: (t) => setAspect(t, "running") }, files.filter((f) => f.name !== name));
     } catch (e) {
       write(`Unexpected error: ${e.message}\n`, "stderr");
     } finally {
       running = false;
       runBtn.disabled = false;
+      runBtn.className = "btn go";
+      $("status").classList.remove("busy");
       $("run-label").textContent = "Run";
       placeholder?.remove(); placeholder = null;
       if (!segments.length) write("The program finished without printing anything.\n", "meta");
     }
+    if (!result.ok) { runBtn.classList.add("fault"); setTimeout(() => runBtn.classList.remove("fault"), 2500); }
     const secs = ((performance.now() - t0) / 1000).toFixed(2);
     const via = result.meta ? `${result.meta.provider} ${result.meta.version} · ` : "";
-    const summary = `${l.label} · ${via}${secs}s`;
+    const summary = `${name} · ${via}${secs}s`;
     setAspect(`${result.ok ? "Clear" : "Fault"} · ${summary}`, result.ok ? "clear" : "fault");
-    if (result.error?.line) {
-      monaco.editor.setModelMarkers(model, "run", [{
+    if (result.error?.line && project.active === name) {
+      monaco.editor.setModelMarkers(editor.getModel(), "run", [{
         severity: monaco.MarkerSeverity.Error,
         message: result.error.message.replace(/^MiniLang \w+ at line \d+, col \d+: /, ""),
         startLineNumber: result.error.line, startColumn: result.error.col || 1,
@@ -340,18 +426,8 @@ async function main() {
   runBtn.addEventListener("click", run);
 
   /* Roles, presence, follow mode -------------------------------- */
-  let role = solo ? null : "viewer"; // until the server answers, assume the least privilege
-  let users = [];
-  let settingsState = { defaultRole: "editor", locked: false, hasPasscode: false };
-  let connection = solo ? "local" : "connecting";
-  const requests = new Map();
-  let requested = false;
-  const canEdit = () => solo || role === "host" || role === "editor";
-  const cursors = createRemoteCursors(monaco, editor);
   const selections = new Map();
   let following = null;
-  let net = null;
-  let myId = null;
 
   function updateBanner() {
     const banner = $("banner");
@@ -364,10 +440,10 @@ async function main() {
       btn.hidden = !action;
       if (action) { btn.textContent = action.label; btn.disabled = Boolean(action.disabled); btn.onclick = action.run; }
     };
-    if (!solo && !serverUrl()) return set("fault", "No room server", "This site has no room server configured, so rooms are unavailable. Solo mode still works.", { label: "Open playground", run: () => { location.href = "/play"; } });
     if (connection === "offline") return set("fault", "Offline", "The room server is unreachable. Your copy stays editable and re-syncs when it returns.", { label: "Retry", run: () => net?.retry() });
     if (connection === "reconnecting") return set("wait", "Reconnecting", "Trying to reach the room server. Edits are kept locally.");
-    if (!solo && role === "viewer") {
+    if (p2pMode && !p2pNoticeDismissed) return set("wait", "Peer to peer", "This site has no room server, so everyone can edit. Roles, passcodes and checkpoints need one.", { label: "Got it", run: () => { p2pNoticeDismissed = true; updateBanner(); } });
+    if (!solo && role === "viewer" && connection === "connected") {
       return set("locked", "View only", "The host has not given you edit access. You can still run the code for yourself.",
         { label: requested ? "Requested" : "Request edit access", disabled: requested, run: async () => { const r = await net.requestEdit(); if (r.ok) { requested = true; updateBanner(); toast("Request sent to the host", "ph-hand-waving"); } else toast(r.error === "too-soon" ? "Wait a few seconds before asking again" : "Could not send the request", "ph-warning"); } });
     }
@@ -375,27 +451,34 @@ async function main() {
   }
 
   function applyRole(next) {
+    const before = role;
     role = next;
     editor.updateOptions({ readOnly: !canEdit() });
     const badge = $("role-badge");
-    badge.hidden = solo;
-    badge.className = `role-plate role-badge ${role ?? ""}`;
+    badge.hidden = solo || p2pMode;
+    badge.className = `role-plate role-badge ${role ?? ""}${before !== role ? " stamp" : ""}`;
     badge.textContent = role ?? "";
+    $("mode-tag").hidden = !p2pMode;
     $("stab-room").hidden = role !== "host";
     if (role !== "host" && !$("pane-room").hidden) selectSideTab("panel");
-    $("cp-save").disabled = !canEdit();
+    $("cp-save").disabled = !canEdit() || p2pMode;
     updateBanner();
     renderPeople();
     renderHistory();
+    renderTabs();
   }
 
+  const jumpTo = (sel) => {
+    if (!sel) return;
+    if (sel.file && project.has(sel.file) && project.active !== sel.file) project.open(sel.file);
+    editor.revealPositionInCenterIfOutsideViewport(editor.getModel().getPositionAt(Math.min(sel.head, editor.getModel().getValueLength())), monaco.editor.ScrollType.Smooth);
+  };
   function setFollow(id) {
     following = id && users.some((u) => u.id === id) ? id : null;
     $("follow").hidden = !following;
     if (following) { $("follow-text").textContent = `Following ${users.find((u) => u.id === following).name}`; jumpTo(selections.get(following)); }
     renderPeople();
   }
-  const jumpTo = (sel) => { if (sel) editor.revealPositionInCenterIfOutsideViewport(model.getPositionAt(Math.min(sel.head, model.getValueLength())), monaco.editor.ScrollType.Smooth); };
   $("follow-stop").addEventListener("click", () => setFollow(null));
 
   function personRow(u) {
@@ -406,6 +489,8 @@ async function main() {
     const name = el("div", "name");
     name.append(el("b", "", u.name));
     if (isMe) name.append(el("span", "you-tag", "You"));
+    const where = selections.get(u.id)?.file;
+    if (where && !isMe) name.append(el("small", "", where));
     const actions = el("div", "actions");
     const act = (iconName, label, run, danger) => {
       const b = el("button", `btn icon ghost sm${danger ? " danger" : ""}`);
@@ -423,7 +508,8 @@ async function main() {
     }
     const track = el("div", "track");
     track.style.setProperty("--c", `var(--${u.role === "host" ? "red" : u.role === "editor" ? "amber" : "blue"})`);
-    track.append(el("span", `role-plate ${u.role}`, u.role), el("span", `rail ${u.role}`), el("i", `ph ${u.role === "viewer" ? "ph-lock-simple" : "ph-file-code"}`));
+    if (!p2pMode) track.append(el("span", `role-plate ${u.role}`, u.role));
+    track.append(el("span", `rail ${u.role}`), el("i", `ph ${u.role === "viewer" ? "ph-lock-simple" : "ph-file-code"}`));
     row.append(dot, name, actions, track);
     return row;
   }
@@ -444,10 +530,11 @@ async function main() {
     if (solo) box.append(el("div", "empty", "Rooms show everyone here, with their roles."));
     for (const u of users) box.append(personRow(u));
     $("people-count").textContent = String(Math.max(1, users.length));
-    if (!solo && net) {
+    if (!solo) {
       const n = users.length;
       $("conn-text").textContent = { connected: n > 1 ? `Connected · ${n} people` : "Connected · just you", reconnecting: "Reconnecting", offline: "Offline", connecting: "Connecting" }[connection] ?? "";
       $("conn-lamp").className = `lamp ${connection === "connected" ? "green" : connection === "reconnecting" || connection === "connecting" ? "amber" : "red"}`;
+      $("status").classList.toggle("busy", connection === "connecting" || connection === "reconnecting");
     }
   }
 
@@ -458,7 +545,8 @@ async function main() {
     const row = el("div", "msg");
     const who = el("b");
     who.style.color = /^#[0-9a-f]{6}$/i.test(m.color) ? m.color : "";
-    who.append(document.createTextNode(String(m.by).slice(0, 20)), el("span", `role-plate ${["host", "editor", "viewer"].includes(m.role) ? m.role : "viewer"}`, m.role));
+    who.append(document.createTextNode(String(m.by).slice(0, 20)));
+    if (!p2pMode) who.append(el("span", `role-plate ${["host", "editor", "viewer"].includes(m.role) ? m.role : "viewer"}`, m.role));
     row.append(who, el("span", "", String(m.text).slice(0, 500)));
     return row;
   }
@@ -482,21 +570,22 @@ async function main() {
   function renderHistory() {
     const box = $("history");
     box.replaceChildren();
-    if (solo) { box.append(el("div", "empty", "Checkpoints are available in rooms.")); return; }
+    if (solo || p2pMode) { box.append(Object.assign(el("div", "empty"), { innerHTML: `<i class="ph ph-clock-counter-clockwise"></i><span>${solo ? "Checkpoints are available in rooms." : "Checkpoints need the room server."}</span>` })); return; }
     if (!checkpoints.length) { box.append(Object.assign(el("div", "empty"), { innerHTML: '<i class="ph ph-clock-counter-clockwise"></i><span>No checkpoints yet.<br />Save one before a risky change.</span>' })); return; }
     for (const cp of checkpoints) {
       const item = el("div", "cp");
-      item.append(el("b", "", cp.name), el("small", "", `${cp.by} · ${new Date(cp.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}${cp.lang && LANGUAGES[cp.lang] ? ` · ${LANGUAGES[cp.lang].label}` : ""}`));
+      item.title = (cp.names || []).join(", ");
+      item.append(el("b", "", cp.name), el("small", "", `${cp.by} · ${new Date(cp.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · ${cp.count} file${cp.count === 1 ? "" : "s"}`));
       const btn = el("button", "btn sm", "Restore");
       btn.disabled = !canEdit();
-      btn.addEventListener("click", async () => { if (confirm(`Replace the file for everyone with "${cp.name}"?`)) { const r = await net.restoreCheckpoint(cp.id); if (!r.ok) toast("Could not restore", "ph-warning"); } });
+      btn.addEventListener("click", async () => { if (confirm(`Replace the whole project for everyone with "${cp.name}"?`)) { const r = await net.restoreCheckpoint(cp.id); if (!r.ok) toast("Could not restore", "ph-warning"); } });
       item.append(btn);
       box.append(item);
     }
   }
   $("cp-form").addEventListener("submit", async (e) => {
     e.preventDefault();
-    if (!net) return;
+    if (!net || p2pMode) return;
     const r = await net.saveCheckpoint($("cp-name").value);
     if (r.ok) { $("cp-name").value = ""; toast("Checkpoint saved", "ph-clock-counter-clockwise"); } else toast("Only editors can save checkpoints", "ph-lock-simple");
   });
@@ -526,128 +615,129 @@ async function main() {
 
   /* Networking --------------------------------------------------- */
   const hostKey = `host:${roomId}`;
+  const sendSelection = () => {
+    const s = editor.getSelection();
+    const model = editor.getModel();
+    if (net && s && model) net.sendAwareness({ anchor: model.getOffsetAt(s.getStartPosition()), head: model.getOffsetAt(s.getEndPosition()), file: project.active ?? "" });
+  };
+  const handlers = {
+    onStatus: (s) => { connection = s === "connected" ? "connected" : s; updateBanner(); renderPeople(); },
+    onJoined: async (res) => {
+      gate.close();
+      myId = res.you.id;
+      p2pMode = Boolean(res.p2p);
+      users = res.users; settingsState = res.settings; checkpoints = res.checkpoints;
+      requested = false;
+      chatLog.replaceChildren();
+      if (!res.chat.length) chatEmpty(); else res.chat.forEach((m) => addChat(m));
+      unread = 0; $("chat-badge").hidden = true;
+      project.migrateLegacy(`${BASE_NAME}.${LANGUAGES.python.ext}`);
+      applyRole(res.you.role);
+      renderSettings();
+      if (p2pMode) {
+        $("stab-history").querySelector(".hide-md")?.replaceChildren(document.createTextNode("History"));
+        // Wait for peers to hand over the project before creating a starter file.
+        setTimeout(() => { if (users.length <= 1) seedProject(); }, 1800);
+      } else if (res.you.role === "host") await seedProject(); // only the host seeds, so two people never both add a starter file
+    },
+    onJoinError: async (code) => {
+      connection = "connected";
+      if (code === "passcode" || code === "passcode-wrong") {
+        const { passcode } = await gate.show({ title: "Passcode needed", text: "The host protected this room with a passcode.", needName: false, needPass: true, error: code === "passcode-wrong" ? "That passcode is not right." : "", action: "Join room" });
+        net.join({ passcode });
+        return;
+      }
+      const messages = {
+        locked: ["Room is locked", "The host has locked this room to newcomers. Ask them to unlock it."],
+        removed: ["Removed from the room", "The host removed you from this room for the rest of the session."],
+        full: ["Room is full", "This room has reached its limit of 30 people."],
+        busy: ["Server is busy", "The room server cannot open another room right now. Try again shortly."],
+        invalid: ["Invalid room", "This room code is not valid."],
+      };
+      const [title, text] = messages[code] ?? ["Could not join", "Something went wrong while joining the room."];
+      gate.show({ title, text, needName: false, action: code === "locked" ? "Try again" : "", home: true }).then(() => net.join());
+    },
+    onPresence: (list) => {
+      const ids = new Set(list.map((u) => u.id));
+      for (const id of [...selections.keys()]) if (!ids.has(id)) { selections.delete(id); cursors.update(id, null); }
+      users = list;
+      if (following && !ids.has(following)) setFollow(null);
+      for (const [id, sel] of selections) { const u = list.find((x) => x.id === id); if (u) cursors.update(id, { name: u.name, color: u.color, sel }); }
+      for (const id of [...requests.keys()]) if (!ids.has(id)) requests.delete(id);
+      renderPeople();
+    },
+    onAwareness: (id, sel) => {
+      const u = users.find((x) => x.id === id);
+      if (!sel || !u) { selections.delete(id); cursors.update(id, null); return; }
+      selections.set(id, sel);
+      cursors.update(id, { name: u.name, color: u.color, sel });
+      if (following === id) jumpTo(sel);
+    },
+    onChat: addChat,
+    onRun: (r) => {
+      clearOutput();
+      write(`${String(r.by).slice(0, 20)} ran ${String(r.summary || "the project").split(" · ")[0].slice(0, 40)}\n\n`, "who");
+      for (const [text, cls] of r.segs || []) write(String(text), ["stdout", "stderr", "meta"].includes(cls) ? cls : "stdout");
+      setAspect(`${r.ok ? "Clear" : "Fault"} · ${String(r.summary).slice(0, 80)}`, r.ok ? "clear" : "fault");
+      selectTab("output");
+    },
+    onRole: (next) => {
+      const before = role;
+      if (before === "host" && next !== "host") store.del(hostKey);
+      applyRole(next);
+      if (next === "editor" && before === "viewer") { requested = false; toast("You can edit now", "ph-pencil-simple"); }
+      else if (next === "viewer") toast("The host made you a viewer", "ph-eye");
+      else if (next === "host") toast("You are now the host", "ph-crown-simple");
+    },
+    onSettings: (s) => { settingsState = s; renderSettings(); },
+    onCheckpoints: (list) => { checkpoints = list; renderHistory(); },
+    onNotice: (n) => {
+      if (n.code === "read-only") toast("Viewers cannot edit this project", "ph-lock-simple");
+      else if (n.code === "restored") toast(`${n.by ?? "Someone"} restored "${n.name}"`, "ph-clock-counter-clockwise");
+    },
+    onKicked: () => { net.close(); gate.show({ title: "Removed from the room", text: "The host removed you from this room.", needName: false, action: "", home: true }); },
+    onRequest: (r) => { requests.set(r.id, r); renderPeople(); toast(`${r.name} asks to edit`, "ph-hand-waving"); selectSideTab("panel"); },
+    onDenied: () => { requested = false; updateBanner(); toast("The host declined your request", "ph-hand-palm"); },
+    onHostToken: (token) => store.set(hostKey, token),
+  };
+
+  project.migrateLegacy(`${BASE_NAME}.${LANGUAGES.python.ext}`);
   if (solo) {
-    applyLanguage(lang);
-    renderPeople(); renderHistory();
-    await seed();
-  } else if (!serverUrl()) {
-    applyLanguage(lang);
-    updateBanner();
-    $("conn-text").textContent = "No room server";
-    $("conn-lamp").className = "lamp red";
-    await seed();
+    $("conn-text").textContent = "Local session, saved in this browser";
+    applyRole(null);
+    await seedProject();
+    renderPeople();
   } else {
     let name = myName;
-    net = connectRoom({
-      url: serverUrl(), roomId, doc,
-      getIdentity: () => ({ name, hostToken: store.get(hostKey) || undefined }),
-      handlers: {
-        onStatus: (s) => { connection = s === "connected" ? "connected" : s; updateBanner(); renderPeople(); },
-        onJoined: async (res) => {
-          gate.close();
-          myId = res.you.id;
-          users = res.users; settingsState = res.settings; checkpoints = res.checkpoints;
-          requested = false;
-          chatLog.replaceChildren();
-          if (!res.chat.length) chatEmpty(); else res.chat.forEach((m) => addChat(m));
-          unread = 0; $("chat-badge").hidden = true;
-          applyRole(res.you.role);
-          renderSettings();
-          if (LANGUAGES[meta.get("language")]) applyLanguage(meta.get("language"));
-          // Only the host seeds an empty room, so two people never both insert the starter file.
-          if (res.you.role === "host") await seed(); else applyLanguage(lang);
-        },
-        onJoinError: async (code) => {
-          connection = "connected";
-          if (code === "passcode" || code === "passcode-wrong") {
-            const { passcode } = await gate.show({ title: "Passcode needed", text: "The host protected this room with a passcode.", needName: false, needPass: true, error: code === "passcode-wrong" ? "That passcode is not right." : "", action: "Join room" });
-            net.join({ passcode });
-            return;
-          }
-          const messages = {
-            locked: ["Room is locked", "The host has locked this room to newcomers. Ask them to unlock it."],
-            removed: ["Removed from the room", "The host removed you from this room for the rest of the session."],
-            full: ["Room is full", "This room has reached its limit of 30 people."],
-            busy: ["Server is busy", "The room server cannot open another room right now. Try again shortly."],
-            invalid: ["Invalid room", "This room code is not valid."],
-          };
-          const [title, text] = messages[code] ?? ["Could not join", "Something went wrong while joining the room."];
-          gate.show({ title, text, needName: false, action: code === "locked" ? "Try again" : "", home: true }).then(() => net.join());
-        },
-        onPresence: (list) => {
-          const ids = new Set(list.map((u) => u.id));
-          for (const id of [...selections.keys()]) if (!ids.has(id)) { selections.delete(id); cursors.update(id, null); }
-          users = list;
-          if (following && !ids.has(following)) setFollow(null);
-          for (const [id, sel] of selections) { const u = list.find((x) => x.id === id); if (u) cursors.update(id, { name: u.name, color: u.color, sel }); }
-          for (const id of [...requests.keys()]) if (!ids.has(id)) requests.delete(id);
-          renderPeople();
-        },
-        onAwareness: (id, sel) => {
-          const u = users.find((x) => x.id === id);
-          if (!sel || !u) { selections.delete(id); cursors.update(id, null); return; }
-          selections.set(id, sel);
-          cursors.update(id, { name: u.name, color: u.color, sel });
-          if (following === id) jumpTo(sel);
-        },
-        onChat: addChat,
-        onRun: (r) => {
-          clearOutput();
-          write(`${String(r.by).slice(0, 20)} ran ${LANGUAGES[r.lang]?.label ?? "code"}\n\n`, "who");
-          for (const [text, cls] of r.segs || []) write(String(text), ["stdout", "stderr", "meta"].includes(cls) ? cls : "stdout");
-          setAspect(`${r.ok ? "Clear" : "Fault"} · ${String(r.summary).slice(0, 80)}`, r.ok ? "clear" : "fault");
-          selectTab("output");
-        },
-        onRole: (next) => {
-          const before = role;
-          if (before === "host" && next !== "host") store.del(hostKey);
-          applyRole(next);
-          if (next === "editor" && before === "viewer") { requested = false; toast("You can edit now", "ph-pencil-simple"); }
-          else if (next === "viewer") toast("The host made you a viewer", "ph-eye");
-          else if (next === "host") toast("You are now the host", "ph-crown-simple");
-        },
-        onSettings: (s) => { settingsState = s; renderSettings(); },
-        onCheckpoints: (list) => { checkpoints = list; renderHistory(); },
-        onNotice: (n) => {
-          if (n.code === "read-only") toast("Viewers cannot edit this file", "ph-lock-simple");
-          else if (n.code === "restored") toast(`${n.by ?? "Someone"} restored "${n.name}"`, "ph-clock-counter-clockwise");
-        },
-        onKicked: () => { net.close(); gate.show({ title: "Removed from the room", text: "The host removed you from this room.", needName: false, action: "", home: true }); },
-        onRequest: (r) => { requests.set(r.id, r); renderPeople(); toast(`${r.name} asks to edit`, "ph-hand-waving"); selectSideTab("panel"); },
-        onDenied: () => { requested = false; updateBanner(); toast("The host declined your request", "ph-hand-palm"); },
-        onHostToken: (token) => store.set(hostKey, token),
-      },
-    });
-    editor.onDidChangeCursorSelection(() => {
-      const s = editor.getSelection();
-      if (s) net.sendAwareness({ anchor: model.getOffsetAt(s.getStartPosition()), head: model.getOffsetAt(s.getEndPosition()) });
-    });
+    const args = { roomId, doc, getIdentity: () => ({ name, hostToken: store.get(hostKey) || undefined }), handlers };
+    net = useServer ? connectRoom({ url: serverUrl(), ...args }) : connectPeers(args);
+    applyRole(role);
     window.addEventListener("pagehide", () => net.close());
-    applyLanguage(lang);
-    renderPeople(); renderHistory();
-    updateBanner();
   }
+  editor.onDidChangeCursorSelection(sendSelection);
+  window.__project = project; // handy for debugging in the console
 
   /* Sharing and files ------------------------------------------- */
   const copy = async (text, ok) => { try { await navigator.clipboard.writeText(text); toast(ok); } catch { window.prompt("Copy this link", text); } };
   const copyInvite = () => (solo ? toast("Open a room to invite people", "ph-info") : copy(`${location.origin}/r/${roomId}`, "Invite link copied"));
-  const copySnapshot = async () => copy(`${location.origin}/play#s=${await encodeSnapshot({ lang, code: model.getValue() })}`, "Snapshot link copied");
+  const copySnapshot = async () => copy(`${location.origin}/play#s=${await encodeSnapshot({ files: project.all(), active: project.active })}`, "Snapshot link copied");
   function download() {
-    const url = URL.createObjectURL(new Blob([model.getValue()], { type: "text/plain" }));
-    Object.assign(document.createElement("a"), { href: url, download: fileName(lang) }).click();
+    const name = project.active;
+    const url = URL.createObjectURL(new Blob([project.text(name)], { type: "text/plain" }));
+    Object.assign(document.createElement("a"), { href: url, download: name }).click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
-  const openFile = () => { if (!canEdit()) { toast("Only editors can replace the file", "ph-lock-simple"); return; } $("file-input").click(); };
+  const openFile = () => { if (!canEdit()) { toast("Only editors can add files", "ph-lock-simple"); return; } $("file-input").click(); };
   $("file-input").addEventListener("change", async (e) => {
     const file = e.target.files[0];
     e.target.value = "";
     if (!file) return;
     if (file.size > 512 * 1024) { toast("That file is too large (limit 512 KB)", "ph-warning"); return; }
-    const text = await file.text();
-    const match = LANGUAGE_IDS.find((id) => LANGUAGES[id].ext === file.name.split(".").pop().toLowerCase());
-    binding.setText(text);
-    if (match && match !== lang) { applyLanguage(match); meta.set("language", match); }
-    toast(`Opened ${file.name}`, "ph-folder-open");
+    let name = file.name.replace(/[^\w .-]/g, "_");
+    if (!validFileName(name)) name = `upload.${extOf(file.name) || "txt"}`;
+    if (project.has(name)) { const dot = name.lastIndexOf("."); name = `${dot > 0 ? name.slice(0, dot) : name}-copy${dot > 0 ? name.slice(dot) : ""}`; }
+    if (!project.create(name, await file.text())) { fileError(name); return; }
+    toast(`Added ${name}`, "ph-folder-open");
   });
   anchorMenu($("share-btn"), $("share-menu"));
   $("m-invite").addEventListener("click", copyInvite);
@@ -704,13 +794,15 @@ async function main() {
   const languageItems = () => GROUPS.flatMap((g) => LANGUAGE_IDS.filter((id) => LANGUAGES[id].group === g).map((id) => ({
     title: LANGUAGES[id].label, group: g, keywords: `${id} ${LANGUAGES[id].ext}`,
     tile: () => langTile(LANGUAGES[id], 22),
-    hint: id === lang ? "current" : LANGUAGES[id].runtime === "remote" ? "remote compiler" : "",
+    hint: id === fileLang(project.active) ? "current" : LANGUAGES[id].runtime === "remote" ? "remote compiler" : "",
     run: () => setLanguage(id),
   })));
-  const openLanguages = () => palette.open(languageItems, `Search ${LANGUAGE_IDS.length} languages`);
+  const openLanguages = () => palette.open(languageItems, `Set the language of ${project.active ?? "this file"}`);
+  const fileItems = () => project.names().map((n) => ({ title: n, group: "Open file", icon: "ph-file-code", hint: n === project.active ? "open" : "", run: () => project.open(n) }));
   const commandItems = () => [
-    { title: "Run code", group: "Actions", icon: "ph-play", hint: `${MOD} ↵`, run },
-    { title: "Change language", group: "Actions", icon: "ph-translate", run: openLanguages },
+    { title: "Run", group: "Actions", icon: "ph-play", hint: `${MOD} ↵`, run },
+    { title: "New file", group: "Actions", icon: "ph-file-plus", run: newFile },
+    { title: "Change language of this file", group: "Actions", icon: "ph-translate", run: openLanguages },
     ...(solo ? [] : [
       { title: "Copy invite link", group: "Room", icon: "ph-link", run: copyInvite },
       { title: "Save checkpoint", group: "Room", icon: "ph-clock-counter-clockwise", run: () => { selectSideTab("history"); $("cp-name").focus(); } },
@@ -718,9 +810,9 @@ async function main() {
       { title: "Open chat", group: "Room", icon: "ph-chat-circle", run: () => selectSideTab("chat") },
     ]),
     { title: "Copy snapshot link", group: "Share", icon: "ph-camera", run: copySnapshot },
-    { title: "Download file", group: "Share", icon: "ph-download-simple", run: download },
-    { title: "Open file from disk", group: "Share", icon: "ph-folder-open", run: openFile },
-    { title: "Toggle theme", group: "View", icon: "ph-circle-half", run: () => setThemeMode(resolvedTheme() === "light" ? "dark" : "light") },
+    { title: "Download this file", group: "Share", icon: "ph-download-simple", run: download },
+    { title: "Add file from disk", group: "Share", icon: "ph-folder-open", run: openFile },
+    ...THEMES.map((t) => ({ title: `Theme: ${t.label}`, group: "View", icon: "ph-palette", run: () => setTheme(t.id) })),
     { title: "Increase font size", group: "View", icon: "ph-text-aa", run: () => bumpFont(1) },
     { title: "Decrease font size", group: "View", icon: "ph-text-aa", run: () => bumpFont(-1) },
     { title: "Toggle word wrap", group: "View", icon: "ph-text-align-left", run: () => { settings.wrap = !settings.wrap; applySettings(); } },
@@ -728,6 +820,7 @@ async function main() {
     ...(solo ? [] : [{ title: "Toggle side panel", group: "View", icon: "ph-sidebar-simple", run: toggleSide }]),
     { title: "Clear output", group: "View", icon: "ph-trash", run: () => $("clear").click() },
     { title: "Home", group: "Go", icon: "ph-house", run: () => { location.href = "/"; } },
+    ...fileItems(),
     ...languageItems().map((i) => ({ ...i, group: "Languages" })),
   ];
   const openCommands = () => palette.open(commandItems);

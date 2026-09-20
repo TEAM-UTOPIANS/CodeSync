@@ -1,19 +1,14 @@
 import { LANGUAGES, LANGUAGE_IDS } from "./languages.js";
 import { langTile } from "./ui.js";
+import { mountThemePicker } from "./themes.js";
+import { createFlapBoard } from "./flap.js";
 
 const $ = (id) => document.getElementById(id);
 const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 document.querySelectorAll("[data-lang-count]").forEach((el) => (el.textContent = String(LANGUAGE_IDS.length)));
-
-/* ── Role panel: the hero demonstration ─────────────────────────── */
-const people = [
-  { name: "Mira", color: "#f28b82", role: "host" },
-  { name: "Tomás", color: "#7bc47f", role: "editor" },
-  { name: "Lena", color: "#7fb7f5", role: "viewer" },
-];
-const ROLE_ICON = { host: "ph-crown-simple", editor: "ph-pencil-simple", viewer: "ph-eye" };
-let attempted = null;
+mountThemePicker($("themes"));
+if (reduceMotion) $("trackmap").pauseAnimations?.();
 
 function el(tag, className, text) {
   const node = document.createElement(tag);
@@ -22,42 +17,50 @@ function el(tag, className, text) {
   return node;
 }
 
+/* ── Role panel: the hero demonstration ─────────────────────────── */
+const people = [
+  { name: "Mira", color: "#f28b82", role: "host" },
+  { name: "Tomás", color: "#7bc47f", role: "editor" },
+  { name: "Lena", color: "#7fb7f5", role: "viewer" },
+];
+const roleColor = { host: "var(--red)", editor: "var(--amber)", viewer: "var(--blue)" };
+let changed = null;
+
 function renderLanes() {
   const lanes = $("lanes");
   lanes.replaceChildren();
   people.forEach((p, i) => {
     const row = el("div", `lane ${p.role}`);
+    row.style.setProperty("--k", i);
     const who = el("div", "lane-who");
     const dot = el("span", "dot", p.name[0]);
     dot.style.background = p.color;
     who.append(dot, el("b", "", p.name));
 
     const track = el("div", "lane-track");
-    const rail = el("span", `rail ${p.role}`);
     const station = el("span", "station");
     station.append(Object.assign(document.createElement("i"), { className: `ph ${p.role === "viewer" ? "ph-lock-simple" : "ph-file-code"}` }));
-    track.append(rail, station);
+    track.append(el("span", `rail ${p.role}`), station);
 
     const roleBox = el("div", "lane-role");
-    roleBox.append(el("span", `role-plate ${p.role}`, p.role));
+    const plate = el("span", `role-plate ${p.role}${changed === p.name ? " stamp" : ""}`, p.role);
     const lever = el("button", "lever");
     lever.setAttribute("aria-label", p.role === "host" ? `${p.name} is the host` : `Toggle ${p.name} between editor and viewer`);
     lever.setAttribute("aria-pressed", String(p.role === "viewer"));
-    lever.style.setProperty("--c", p.role === "viewer" ? "var(--blue)" : p.role === "host" ? "var(--red)" : "var(--amber)");
+    lever.style.setProperty("--c", roleColor[p.role]);
     lever.append(document.createElement("span"));
     lever.disabled = p.role === "host";
     lever.title = p.role === "host" ? "The host always keeps the signals" : "Pull the lever";
     lever.addEventListener("click", () => {
       p.role = p.role === "viewer" ? "editor" : "viewer";
-      attempted = null;
+      changed = p.name;
       setVerdict(`${p.name} is now ${p.role === "viewer" ? "a viewer" : "an editor"}. The server applies this at once.`, p.role === "viewer" ? "amber" : "green");
       renderLanes();
     });
-    roleBox.append(lever);
+    roleBox.append(plate, lever);
     row.append(who, track, roleBox);
     lanes.append(row);
   });
-
   const tries = $("tries");
   tries.replaceChildren();
   people.filter((p) => p.role !== "host").forEach((p) => {
@@ -66,24 +69,36 @@ function renderLanes() {
     tries.append(b);
   });
 }
-
 function setVerdict(text, lamp) {
   const v = $("verdict");
   v.classList.toggle("blocked", lamp === "red");
   v.replaceChildren(el("i", `lamp ${lamp}`), el("span", "", text));
 }
-
 function tryEdit(p) {
-  if (p.role === "viewer") {
-    setVerdict(`Blocked by the server: ${p.name} is a viewer.`, "red");
-  } else {
-    attempted = p.name;
-    $("doc-line").textContent = `print("hello, ${p.name.toLowerCase()}")`;
-    setVerdict(`Accepted: ${p.name} is an editor.`, "green");
-  }
+  if (p.role === "viewer") setVerdict(`Blocked by the server: ${p.name} is a viewer.`, "red");
+  else { $("doc-line").textContent = `print("hello, ${p.name.toLowerCase()}")`; setVerdict(`Accepted: ${p.name} is an editor.`, "green"); }
 }
-
 renderLanes();
+
+// A soft light follows the pointer across the panel.
+$("panel").addEventListener("pointermove", (e) => {
+  const r = e.currentTarget.getBoundingClientRect();
+  e.currentTarget.style.setProperty("--mx", `${e.clientX - r.left}px`);
+  e.currentTarget.style.setProperty("--my", `${e.clientY - r.top}px`);
+});
+
+/* ── Departure board: languages flip into place ─────────────────── */
+const flap = createFlapBoard($("flap"), 14);
+const route = { browser: "Runs in your browser", preview: "Renders live in your browser", remote: "Compiled on a public service" };
+const showcase = ["python", "rust", "typescript", "go", "kotlin", "haskell", "cpp", "swift", "julia", "javascript", "java", "ruby"].map((id) => LANGUAGES[id]);
+let at = 0;
+function depart() {
+  const l = showcase[at++ % showcase.length];
+  flap.show(l.label.replace(/[^A-Za-z0-9+# ]/g, ""));
+  $("flap-note").textContent = route[l.runtime];
+}
+setTimeout(depart, 900);
+if (!reduceMotion) setInterval(depart, 3200);
 
 /* ── Language board ─────────────────────────────────────────────── */
 const columns = [
@@ -91,7 +106,6 @@ const columns = [
   ["Compiled", ["Compiled", "JVM and .NET"]],
   ["Scripting and data", ["Scripting", "Functional and data"]],
 ];
-const board = $("board");
 for (const [title, groups] of columns) {
   const col = el("div", "board-col");
   col.append(el("h3", "", title));
@@ -102,21 +116,21 @@ for (const [title, groups] of columns) {
     ul.append(li);
   }
   col.append(ul);
-  board.append(col);
+  $("board").append(col);
 }
 
 /* ── Reveal, nav border ─────────────────────────────────────────── */
 const io = new IntersectionObserver((entries) => {
   for (const e of entries) if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); }
 }, { threshold: 0.12, rootMargin: "0px 0px -5% 0px" });
-document.querySelectorAll(".reveal").forEach((n) => (reduceMotion ? n.classList.add("in") : io.observe(n)));
+document.querySelectorAll(".reveal").forEach((n, i) => { n.style.transitionDelay = `${(i % 3) * 70}ms`; reduceMotion ? n.classList.add("in") : io.observe(n); });
 
-const sentinel = Object.assign(document.createElement("div"), {});
+const sentinel = el("div");
 sentinel.style.cssText = "position:absolute;top:0;height:8px;width:1px";
 document.body.prepend(sentinel);
 new IntersectionObserver(([e]) => $("nav").classList.toggle("scrolled", !e.isIntersecting)).observe(sentinel);
 
-/* ── Start, join, theme ─────────────────────────────────────────── */
+/* ── Start and join ─────────────────────────────────────────────── */
 const rand = (n, alphabet) => Array.from(crypto.getRandomValues(new Uint8Array(n)), (b) => alphabet[b % alphabet.length]).join("");
 function createRoom() {
   const s = rand(12, "abcdefghjkmnpqrstuvwxyz23456789");
@@ -135,9 +149,4 @@ $("join-form").addEventListener("submit", (e) => {
   const id = $("join-code").value.trim().split("#")[0].split("/r/").pop().split("?")[0].replace(/\/$/, "").toLowerCase();
   if (!/^[a-z0-9-]{4,40}$/.test(id)) { $("join-error").textContent = "That is not a room code or invite link."; dialog.showModal(); return; }
   location.href = `/r/${id}`;
-});
-$("theme").addEventListener("click", () => {
-  const next = document.documentElement.dataset.theme === "light" ? "dark" : "light";
-  document.documentElement.dataset.theme = next;
-  try { localStorage.setItem("codesync:theme", next); } catch { /* storage unavailable */ }
 });

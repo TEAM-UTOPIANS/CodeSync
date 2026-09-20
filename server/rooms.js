@@ -4,7 +4,7 @@ import * as Y from "yjs";
 
 export const ROLES = ["host", "editor", "viewer"];
 export const JOINABLE_ROLES = ["editor", "viewer"];
-export const LIMITS = { users: 30, chat: 200, checkpoints: 30, update: 256 * 1024, name: 20, message: 500 };
+export const LIMITS = { users: 30, chat: 200, checkpoints: 30, update: 256 * 1024, name: 20, message: 500, fileName: 60 };
 
 // Cursor colours (identity only). Role is shown separately, so these stay away from the role colours.
 const CURSOR_COLORS = ["#f28b82", "#7bc47f", "#7fb7f5", "#f6c453", "#c3a6f2", "#f2a1cf", "#f4a261", "#9bd16b"];
@@ -32,8 +32,13 @@ export class Room {
   }
 
   touch() { this.touched = Date.now(); }
-  get text() { return this.doc.getText("code"); }
-  get language() { return this.doc.getMap("meta").get("language") ?? null; }
+  /** Project files in tab order: [{name, code}]. Each file is a Y.Text inside the "files" map. */
+  files() {
+    const map = this.doc.getMap("files");
+    const order = this.doc.getArray("order").toArray();
+    const names = [...new Set([...order.filter((n) => map.has(n)), ...map.keys()])];
+    return names.map((name) => ({ name, code: String(map.get(name)?.toString?.() ?? "") }));
+  }
   hostIds() { return [...this.users.values()].filter((u) => u.role === "host").map((u) => u.id); }
 
   publicUsers() {
@@ -158,20 +163,21 @@ export class Room {
   saveCheckpoint(socketId, name) {
     const user = this.users.get(socketId);
     if (!this.canEdit(socketId)) return { ok: false, error: "read-only" };
+    const files = this.files();
+    if (!files.length) return { ok: false, error: "empty" };
     const cp = {
       id: newToken().slice(0, 8),
       name: String(name ?? "").trim().slice(0, 40) || `Checkpoint ${this.checkpoints.length + 1}`,
       by: user.name,
       ts: Date.now(),
-      lang: this.language,
-      code: this.text.toString(),
+      files,
     };
     this.checkpoints.unshift(cp);
     if (this.checkpoints.length > LIMITS.checkpoints) this.checkpoints.pop();
     return { ok: true, checkpoint: cp };
   }
 
-  /** Replace the document with a checkpoint. Returns the Yjs update to broadcast to everyone. */
+  /** Replace every file with a checkpoint's files. Returns the Yjs update to broadcast to everyone. */
   restoreCheckpoint(socketId, id) {
     if (!this.canEdit(socketId)) return { ok: false, error: "read-only" };
     const cp = this.checkpoints.find((c) => c.id === id);
@@ -180,10 +186,14 @@ export class Room {
     const capture = (u) => updates.push(u);
     this.doc.on("update", capture);
     this.doc.transact(() => {
-      const text = this.text;
-      text.delete(0, text.length);
-      text.insert(0, cp.code);
-      if (cp.lang) this.doc.getMap("meta").set("language", cp.lang);
+      const map = this.doc.getMap("files");
+      const order = this.doc.getArray("order");
+      for (const key of [...map.keys()]) map.delete(key);
+      order.delete(0, order.length);
+      for (const f of cp.files) {
+        map.set(f.name, new Y.Text(f.code));
+        order.push([f.name]);
+      }
     }, "server");
     this.doc.off("update", capture);
     this.touch();
@@ -191,7 +201,7 @@ export class Room {
   }
 
   publicCheckpoints() {
-    return this.checkpoints.map(({ id, name, by, ts, lang }) => ({ id, name, by, ts, lang }));
+    return this.checkpoints.map(({ id, name, by, ts, files }) => ({ id, name, by, ts, count: files.length, names: files.map((f) => f.name).slice(0, 6) }));
   }
 }
 

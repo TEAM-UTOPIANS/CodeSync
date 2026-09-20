@@ -11,7 +11,9 @@ const cleanTraceback = (msg) => {
   return i === -1 ? msg : "Traceback (most recent call last):\n  " + msg.slice(i);
 };
 
-self.onmessage = async ({ data: { code, stdin } }) => {
+let written = new Set();
+
+self.onmessage = async ({ data: { code, stdin, files = [] } }) => {
   try {
     if (!pyodide) {
       post("status", "Loading Python runtime (first run only)…");
@@ -22,6 +24,12 @@ self.onmessage = async ({ data: { code, stdin } }) => {
     pyodide.setStdin({ stdin: () => (idx < lines.length ? lines[idx++] : undefined) });
     pyodide.setStdout({ batched: (s) => post("stdout", s + "\n") });
     pyodide.setStderr({ batched: (s) => post("stderr", s + "\n") });
+
+    // Other project files become importable modules in the working directory.
+    for (const name of written) if (!files.some((f) => f.name === name)) { try { pyodide.FS.unlink(name); } catch { /* already gone */ } }
+    for (const f of files) pyodide.FS.writeFile(f.name, f.code);
+    written = new Set(files.map((f) => f.name));
+    pyodide.runPython("import importlib, sys; importlib.invalidate_caches(); [sys.modules.pop(m) for m in list(sys.modules) if getattr(sys.modules[m], '__file__', '') and str(sys.modules[m].__file__).startswith('/home/pyodide/')]");
 
     const globals = pyodide.globals.get("dict")();
     try {

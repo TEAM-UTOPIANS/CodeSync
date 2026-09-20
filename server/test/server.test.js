@@ -88,7 +88,7 @@ test("viewers cannot change the document, even by bypassing the UI", async () =>
   const res = await emit(viewer.socket, "doc:update", typeInto(new Y.Doc(), "hacked"));
   assert.deepEqual(res, { ok: false, error: "read-only" });
   assert.equal((await notice).code, "read-only");
-  assert.equal(app.store.get(id).text.toString(), "");
+  assert.equal(app.store.get(id).files().length, 0);
   // Nor can they save checkpoints or broadcast a run result.
   assert.equal((await emit(viewer.socket, "checkpoint:save", { name: "x" })).error, "read-only");
 });
@@ -163,18 +163,22 @@ test("chat is stored and broadcast; checkpoints save and restore for everyone", 
   assert.equal((await msg).text, "hello");
   assert.equal((await join(id, { name: "C" })).res.chat.length, 1);
 
+  // Files live in a Y.Map of Y.Text, exactly as the browser creates them.
   const doc = new Y.Doc();
-  await emit(a.socket, "doc:update", typeInto(doc, "v1"));
-  await emit(a.socket, "checkpoint:save", { name: "first" });
+  const capture = (fn) => { let u; doc.once("update", (x) => { u = x; }); doc.transact(fn); return b64(u); };
+  await emit(a.socket, "doc:update", capture(() => { doc.getMap("files").set("main.py", new Y.Text("v1")); doc.getArray("order").push(["main.py"]); }));
+  assert.deepEqual((await emit(a.socket, "checkpoint:save", { name: "first" })), { ok: true });
   const room = app.store.get(id);
-  assert.equal(room.checkpoints[0].code, "v1");
-  await emit(a.socket, "doc:update", (() => { let u; doc.once("update", (x) => { u = x; }); doc.getText("code").insert(0, "v2-"); return b64(u); })());
-  assert.equal(room.text.toString(), "v2-v1");
+  assert.equal(room.checkpoints[0].files[0].code, "v1");
+  await emit(a.socket, "doc:update", capture(() => { doc.getMap("files").get("main.py").insert(0, "v2-"); doc.getMap("files").set("util.py", new Y.Text("x")); doc.getArray("order").push(["util.py"]); }));
+  assert.equal(room.files().map((f) => f.name).join(), "main.py,util.py");
+  assert.equal(room.files()[0].code, "v2-v1");
   const restored = once(b.socket, "doc:update");
   assert.deepEqual(await emit(a.socket, "checkpoint:restore", { id: room.checkpoints[0].id }), { ok: true });
   const bDoc = new Y.Doc();
   Y.applyUpdate(bDoc, unb64(await restored));
-  assert.equal(room.text.toString(), "v1");
+  assert.deepEqual(room.files(), [{ name: "main.py", code: "v1" }]);
+  assert.equal(room.publicCheckpoints()[0].count, 1);
 });
 
 test("oversized or malformed updates are rejected", async () => {

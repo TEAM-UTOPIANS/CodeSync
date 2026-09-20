@@ -14,8 +14,8 @@ const LIST_TTL_MS = 60 * 60 * 1000;
  *  Listing both gives automatic fallback when one service is down.
  */
 export const REMOTE = {
-  c: { wandbox: { language: "C", prefer: /^gcc-\d+\.\d+\.\d+-c$/, raw: "-std=c17\n-O2" }, godbolt: { lang: "c", prefer: /^cg\d+$/ } },
-  cpp: { wandbox: { language: "C++", prefer: /^gcc-\d+\.\d+\.\d+$/, raw: "-std=c++20\n-O2" }, godbolt: { lang: "c++", prefer: /^g\d+$/ } },
+  c: { wandbox: { language: "C", prefer: /^gcc-\d+\.\d+\.\d+-c$/, raw: "-std=c17\n-O2\n-I." }, godbolt: { lang: "c", prefer: /^cg\d+$/ } },
+  cpp: { wandbox: { language: "C++", prefer: /^gcc-\d+\.\d+\.\d+$/, raw: "-std=c++20\n-O2\n-I." }, godbolt: { lang: "c++", prefer: /^g\d+$/ } },
   csharp: { wandbox: { language: "C#", prefer: /^mono-\d+\.\d+\.\d+\.\d+$/ } },
   java: { wandbox: { language: "Java", prefer: /^openjdk-jdk-\d+\+\d+$/ }, godbolt: { lang: "java", prefer: /^java\d+$/ } },
   kotlin: { godbolt: { lang: "kotlin", prefer: /^kotlinc\d+$/ } },
@@ -101,6 +101,7 @@ const looksBroken = (r) => r.phase === "compile" && BROKEN_TOOLCHAIN.test(r.comp
 async function runWandboxOnce(spec, compiler, code, stdin, ctx) {
   const t0 = Date.now();
   const body = { compiler, code, stdin, save: false };
+  if (ctx.files?.length) body.codes = ctx.files.map((f) => ({ file: f.name, code: f.code }));
   if (spec.raw) body["compiler-option-raw"] = spec.raw;
   const r = await getJson(`${WANDBOX}/compile.json`, {
     method: "POST",
@@ -162,6 +163,7 @@ async function runGodbolt(spec, code, stdin, ctx) {
         compilerOptions: { executorRequest: true },
         filters: { execute: true },
       },
+      ...(ctx.files?.length ? { files: ctx.files.map((f) => ({ filename: f.name, contents: f.code })) } : {}),
     }),
   }, ctx);
   const build = r.buildResult;
@@ -185,17 +187,18 @@ async function runGodbolt(spec, code, stdin, ctx) {
 
 /**
  * Run `code` in language `id`, trying each configured service in turn.
+ * `files` are the other project files ({name, code}) sent alongside the main file for #include, imports and so on.
  * @returns normalized result: {ok, exitCode, signal, stdout, stderr, compileOutput, phase, provider, version, timeMs}
  */
-export async function executeRemote(id, code, stdin = "", { fetchImpl = fetch, signal, only } = {}) {
+export async function executeRemote(id, code, stdin = "", { fetchImpl = fetch, signal, only, files = [] } = {}) {
   const entry = REMOTE[id];
   if (!entry) throw new Error(`Unsupported language: ${id}`);
-  const ctx = { fetchImpl, signal };
-  // Compiler Explorer answers in milliseconds for the languages it supports, so it goes first.
-  const attempts = [
-    entry.godbolt && only !== "wandbox" && ["godbolt", () => runGodbolt(entry.godbolt, code, stdin, ctx)],
-    entry.wandbox && only !== "godbolt" && ["wandbox", () => runWandbox(entry.wandbox, code, stdin, ctx)],
-  ].filter(Boolean);
+  const ctx = { fetchImpl, signal, files };
+  // Compiler Explorer answers in milliseconds, so it goes first. With extra project files Wandbox goes first:
+  // it writes them next to the main file, which makes #include and imports resolve.
+  const godboltAttempt = entry.godbolt && only !== "wandbox" && ["godbolt", () => runGodbolt(entry.godbolt, code, stdin, ctx)];
+  const wandboxAttempt = entry.wandbox && only !== "godbolt" && ["wandbox", () => runWandbox(entry.wandbox, code, stdin, ctx)];
+  const attempts = (files.length ? [wandboxAttempt, godboltAttempt] : [godboltAttempt, wandboxAttempt]).filter(Boolean);
   if (!attempts.length) throw new Error(`No provider available for ${id}`);
 
   let lastError;
@@ -207,7 +210,7 @@ export async function executeRemote(id, code, stdin = "", { fetchImpl = fetch, s
 
 /** Newest compiler/runtime name per language, for display. Resolves against live provider lists. */
 export async function resolveVersions({ fetchImpl = fetch, signal } = {}) {
-  const ctx = { fetchImpl, signal };
+  const ctx = { fetchImpl, signal, files };
   const out = {};
   await Promise.all(Object.entries(REMOTE).map(async ([id, entry]) => {
     try {

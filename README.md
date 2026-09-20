@@ -31,7 +31,9 @@ How the host is decided: the browser that creates a room stores a random host to
 - Edit requests: a viewer asks, the host allows or denies.
 - Room controls: default role for newcomers, lock, passcode, remove, transfer host.
 - Chat with history, named checkpoints with restore for everyone, shared run output.
-- 33 languages, command palette (`Ctrl/Cmd + K`), live HTML preview, snapshot links, download and open files.
+- **Multi-file projects**: add, rename and delete files; everyone sees the same tabs. Python imports its sibling files, web pages pick up their own CSS and JS files, and C, C++ and Java see their headers and classes. Checkpoints and snapshot links cover the whole project.
+- Four themes (Signal Box, Enamel, Night Mail, Locomotive) that also recolour the editor.
+- 33 languages, command palette (`Ctrl/Cmd + K`), live HTML preview, snapshot links, download and add files.
 - Works offline as a playground (`/play`), saved in the browser.
 
 ## Run locally
@@ -54,7 +56,7 @@ The site and the room server are deployed separately because Vercel functions ca
    - `SOCKET_URL` = the room server URL from step 1.
 3. Back on Render set `CORS_ORIGIN` to your Vercel URL (comma separate several) or leave `*`.
 
-`vercel.json` runs `scripts/build-config.mjs`, which writes `public/config.js` from `SOCKET_URL`. Without it the site still works, but rooms show a "No room server" notice and the playground keeps working.
+`vercel.json` runs `scripts/build-config.mjs`, which writes `public/config.js` from `SOCKET_URL`. Without it the site still works: rooms fall back to **peer to peer** mode (WebRTC through public Nostr relays), where everyone can edit and roles, passcodes and checkpoints are unavailable. Add `?p2p` to any room URL to force that mode locally.
 
 Notes on the free tier: Render's free service sleeps after inactivity, so the first person to open a room may wait around 30 seconds while it wakes (the editor shows "Reconnecting"). Rooms live in the server's memory and are removed after 30 minutes with nobody in them. Everyone keeps a local copy in their browser, and editors push it back to the server when they reconnect.
 

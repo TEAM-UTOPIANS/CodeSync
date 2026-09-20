@@ -87,7 +87,8 @@ export function createApp({ corsOrigin = process.env.CORS_ORIGIN || "*", store =
 
     socket.on("awareness", guard((sel) => {
       if (sel !== null && !(typeof sel?.anchor === "number" && typeof sel?.head === "number")) return;
-      socket.to(room.id).emit("awareness", { id: socket.id, sel: sel ? { anchor: sel.anchor, head: sel.head } : null });
+      const file = typeof sel?.file === "string" ? sel.file.slice(0, 60) : "";
+      socket.to(room.id).emit("awareness", { id: socket.id, sel: sel ? { anchor: sel.anchor, head: sel.head, file } : null });
     }));
 
     socket.on("chat:send", guard((text) => {

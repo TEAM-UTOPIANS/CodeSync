@@ -9,13 +9,27 @@ const format = (v) => {
 };
 const line = (args) => args.map(format).join(" ") + "\n";
 
-self.onmessage = async ({ data: { code, stdin } }) => {
+self.onmessage = async ({ data: { code, stdin, files = [] } }) => {
   const inputLines = stdin ? stdin.replace(/\r\n?/g, "\n").split("\n") : [];
   let inputIdx = 0;
 
   for (const [name, stream] of [["log", "stdout"], ["info", "stdout"], ["debug", "stdout"], ["warn", "stderr"], ["error", "stderr"]]) {
     console[name] = (...args) => post(stream, line(args));
   }
+  // Other project files are available through require('./name.js').
+  const sources = new Map(files.map((f) => [f.name, f.code]));
+  const cache = new Map();
+  self.require = (spec) => {
+    const key = String(spec).replace(/^\.\//, "");
+    const name = [key, `${key}.js`].find((n) => sources.has(n));
+    if (!name) throw new Error(`Cannot find module '${spec}'`);
+    if (!cache.has(name)) {
+      const module = { exports: {} };
+      cache.set(name, module);
+      new Function("module", "exports", "require", sources.get(name))(module, module.exports, self.require);
+    }
+    return cache.get(name).exports;
+  };
   self.input = self.prompt = () => (inputIdx < inputLines.length ? inputLines[inputIdx++] : null);
 
   // `done` fires once the main body settled AND no timers are pending, so setTimeout demos work.
