@@ -1,5 +1,18 @@
 {
-  "dependencies": {
-    "localtunnel": "^2.0.2"
+  "name": "codesync",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Real-time collaborative browser IDE with server-enforced roles. Static frontend, Vercel functions and a Socket.IO room server.",
+  "scripts": {
+    "setup": "npm --prefix server install",
+    "dev": "node scripts/dev.mjs",
+    "start:server": "npm --prefix server start",
+    "test": "node --test tests/*.test.js && npm --prefix server test",
+    "build": "node scripts/build-config.mjs",
+    "verify:languages": "node scripts/verify-languages.mjs"
+  },
+  "engines": {
+    "node": ">=18"
   }
 }

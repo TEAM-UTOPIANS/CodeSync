@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CodeSync editor</title>
+  <meta name="color-scheme" content="dark light" />
+  <meta name="robots" content="noindex" />
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" /><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@phosphor-icons/web@2.1.2/src/regular/style.css" />
+  <link rel="stylesheet" href="/css/style.css" />
+  <script>try { const t = localStorage.getItem("codesync:theme"); document.documentElement.dataset.theme = t && t !== "system" ? t : (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark"); } catch {}</script>
+  <script src="/config.js"></script>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <a class="wordmark" href="/" title="Home" aria-label="CodeSync home"><span class="mark" aria-hidden="true"><i></i><i></i><i></i></span></a>
+    <span class="room-id" id="room-id" title="Room"><i class="ph ph-broadcast"></i><span id="room-name"></span></span>
+    <span class="role-plate role-badge" id="role-badge" hidden></span>
+    <button class="btn lang-btn" id="lang-btn" aria-haspopup="dialog" title="Change language"><span id="lang-icon"></span><span id="lang-label">Language</span><i class="ph ph-caret-down caret"></i></button>
+    <button class="btn go" id="run" title="Run"><i class="ph ph-play"></i><span id="run-label">Run</span><kbd class="hide-md" id="run-kbd"></kbd></button>
+    <span class="spacer"></span>
+    <button class="btn" id="share-btn" aria-haspopup="menu"><i class="ph ph-share-network"></i><span class="hide-md">Share</span></button>
+    <button class="btn icon ghost hide-sm" id="palette-btn" title="Command palette" aria-label="Command palette"><i class="ph ph-command"></i></button>
+    <button class="btn icon ghost" id="settings-btn" title="Editor settings" aria-label="Editor settings" aria-haspopup="menu"><i class="ph ph-sliders-horizontal"></i></button>
+    <button class="btn icon ghost" id="theme" title="Toggle theme" aria-label="Toggle theme"><i class="ph ph-circle-half"></i></button>
+    <button class="btn icon ghost" id="side-toggle" title="Toggle side panel" aria-label="Toggle side panel"><i class="ph ph-sidebar-simple"></i></button>
+  </header>
+
+  <div class="workspace" id="workspace">
+    <section class="main" id="main">
+      <div class="editor-col">
+      <div class="banner" id="banner" hidden><b id="banner-title"></b><span id="banner-text"></span><button class="btn sm" id="banner-action" hidden></button></div>
+      <div class="editor-wrap">
+        <div id="editor"></div>
+        <div class="loading" id="loading">Loading editor</div>
+        <div class="follow" id="follow" hidden><span id="follow-text"></span><button class="btn sm" id="follow-stop">Stop <kbd>Esc</kbd></button></div>
+      </div>
+      </div>
+      <div class="resizer" id="resizer" role="separator" aria-orientation="horizontal" aria-label="Resize console"></div>
+      <div class="console">
+        <div class="tabs" role="tablist">
+          <button class="tab" role="tab" id="tab-output" aria-selected="true"><i class="ph ph-terminal"></i>Output</button>
+          <button class="tab" role="tab" id="tab-stdin" aria-selected="false"><i class="ph ph-keyboard"></i>Input</button>
+          <button class="tab" role="tab" id="tab-preview" aria-selected="false" hidden><i class="ph ph-browser"></i>Preview</button>
+          <span class="spacer"></span>
+          <span class="aspect" id="aspect"></span>
+          <button class="btn icon ghost sm" id="copy-output" title="Copy output" aria-label="Copy output"><i class="ph ph-copy"></i></button>
+          <button class="btn icon ghost sm" id="clear" title="Clear output" aria-label="Clear output"><i class="ph ph-trash"></i></button>
+        </div>
+        <div class="pane" id="output" role="tabpanel" aria-live="polite"></div>
+        <div class="pane" id="stdin-pane" role="tabpanel" hidden><textarea id="stdin" placeholder="Text your program reads from standard input, one line per read" spellcheck="false" aria-label="Standard input"></textarea></div>
+        <div class="pane" id="preview-pane" role="tabpanel" hidden><iframe id="preview" title="Live preview" sandbox="allow-scripts allow-forms allow-modals allow-popups"></iframe></div>
+      </div>
+    </section>
+
+    <aside class="side" id="side">
+      <div class="tabs" role="tablist" id="side-tabs">
+        <button class="tab" role="tab" id="stab-panel" aria-selected="true"><i class="ph ph-users-three"></i>Panel<span class="count" id="people-count">1</span></button>
+        <button class="tab" role="tab" id="stab-chat" aria-selected="false"><i class="ph ph-chat-circle"></i>Chat<span class="count" id="chat-badge" hidden>0</span></button>
+        <button class="tab" role="tab" id="stab-history" aria-selected="false"><i class="ph ph-clock-counter-clockwise"></i><span class="hide-md">History</span></button>
+        <button class="tab" role="tab" id="stab-room" aria-selected="false" hidden><i class="ph ph-gear-six"></i><span class="hide-md">Room</span></button>
+      </div>
+      <div class="side-pane" id="pane-panel"><div class="diagram" id="diagram"></div></div>
+      <div class="side-pane" id="pane-chat" hidden>
+        <div class="chat-log" id="chat-log" aria-live="polite"></div>
+        <form class="chat-form" id="chat-form" autocomplete="off">
+          <label class="sr-only" for="chat-input">Message</label>
+          <input class="field" id="chat-input" placeholder="Message the room" maxlength="500" />
+          <button class="btn icon" type="submit" aria-label="Send"><i class="ph ph-paper-plane-tilt"></i></button>
+        </form>
+      </div>
+      <div class="side-pane" id="pane-history" hidden>
+        <form class="history-head" id="cp-form" autocomplete="off">
+          <label class="sr-only" for="cp-name">Checkpoint name</label>
+          <input class="field" id="cp-name" placeholder="Name this version" maxlength="40" />
+          <button class="btn" type="submit" id="cp-save">Save</button>
+        </form>
+        <div class="history" id="history"></div>
+      </div>
+      <div class="side-pane" id="pane-room" hidden>
+        <div class="room-panel">
+          <div>
+            <h3 class="legend">New people join as</h3>
+            <div class="seg" id="seg-default"><button data-role="editor" class="editor" aria-pressed="true">Editor</button><button data-role="viewer" class="viewer" aria-pressed="false">Viewer</button></div>
+          </div>
+          <div class="switch-row"><div><b>Lock the room</b><p>Nobody new can join while it is locked.</p></div><span class="switch"><input type="checkbox" id="lock" aria-label="Lock the room" /></span></div>
+          <div>
+            <h3 class="legend">Passcode</h3>
+            <form class="pass-row" id="pass-form" autocomplete="off"><input class="field" id="pass" type="text" placeholder="No passcode" maxlength="64" aria-label="Room passcode" /><button class="btn" type="submit">Set</button></form>
+          </div>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <footer class="status">
+    <span id="conn"><i class="lamp" id="conn-lamp"></i><span id="conn-text">Starting</span></span>
+    <span class="spacer"></span>
+    <span id="runtime-info" class="hide-sm"></span>
+    <span id="lang-status"></span>
+    <span id="pos">Ln 1, Col 1</span>
+  </footer>
+</div>
+
+<div class="menu" id="share-menu" hidden role="menu">
+  <button id="m-invite" role="menuitem"><i class="ph ph-link"></i>Copy invite link</button>
+  <button id="m-snapshot" role="menuitem"><i class="ph ph-camera"></i>Copy snapshot link</button>
+  <hr />
+  <button id="m-download" role="menuitem"><i class="ph ph-download-simple"></i>Download file</button>
+  <button id="m-open" role="menuitem"><i class="ph ph-folder-open"></i>Open file from disk</button>
+</div>
+<div class="menu" id="settings-menu" hidden role="menu">
+  <label>Font size <span class="stepper"><button id="fs-minus" aria-label="Smaller">-</button><span id="fs-value">14</span><button id="fs-plus" aria-label="Larger">+</button></span></label>
+  <label>Word wrap <input type="checkbox" id="set-wrap" /></label>
+  <label>Minimap <input type="checkbox" id="set-minimap" /></label>
+  <label>Font ligatures <input type="checkbox" id="set-ligatures" /></label>
+  <label>Theme <select id="set-theme"><option value="system">System</option><option value="dark">Dark</option><option value="light">Light</option></select></label>
+</div>
+<input type="file" id="file-input" hidden />
+
+<dialog id="palette" aria-label="Command palette">
+  <div class="pal-input"><i class="ph ph-magnifying-glass"></i><input id="pal-input" placeholder="Type a command or a language" autocomplete="off" spellcheck="false" role="combobox" aria-expanded="true" aria-controls="pal-list" /></div>
+  <ul class="pal-list" id="pal-list" role="listbox"></ul>
+  <div class="pal-foot"><span><kbd>Up</kbd> <kbd>Down</kbd> to move</span><span><kbd>Enter</kbd> to select</span><span><kbd>Esc</kbd> to close</span></div>
+</dialog>
+
+<dialog class="gate" id="gate">
+  <form method="dialog" id="gate-form" autocomplete="off">
+    <div><h2 id="gate-title">Join the room</h2><p id="gate-text">Pick a name. It appears next to your cursor and in chat.</p></div>
+    <input class="field" id="gate-name" maxlength="20" autocomplete="nickname" aria-label="Your name" />
+    <input class="field" id="gate-pass" type="password" placeholder="Room passcode" maxlength="64" aria-label="Room passcode" hidden />
+    <div class="form-error" id="gate-error" role="alert"></div>
+    <button class="btn go lg" type="submit" id="gate-submit">Enter room</button>
+    <a class="btn ghost" id="gate-home" href="/" hidden>Back to home</a>
+  </form>
+</dialog>
+<div class="toast" id="toast" role="status"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs/loader.js"></script>
+<script type="module" src="/js/room.js"></script>
+</body>
+</html>

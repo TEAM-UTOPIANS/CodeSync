@@ -1,0 +1,6 @@
+server/
+tests/
+scripts/verify-languages.mjs
+render.yaml
+PRODUCT.md
+DESIGN.md

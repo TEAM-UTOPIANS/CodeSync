@@ -1,0 +1,15 @@
+# Render Blueprint: deploys the Socket.IO room server on Render's free web plan.
+# Dashboard: New > Blueprint > pick this repository. Then copy the service URL into the
+# SOCKET_URL environment variable of the Vercel project and set CORS_ORIGIN to your Vercel URL.
+services:
+  - type: web
+    name: codesync-server
+    runtime: node
+    plan: free
+    rootDir: server
+    buildCommand: npm install --omit=dev
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: CORS_ORIGIN
+        sync: false

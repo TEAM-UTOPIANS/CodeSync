@@ -1,9 +1,25 @@
 {
-  "buildCommand": "pip install -r requirements.txt",
-  "installCommand": "pip install -r requirements.txt",
-  "framework": "flask",
-  "env": {
-    "PYTHONUNBUFFERED": "1",
-    "JUDGE0_BASE_URL": "https://judge0-ce.p.rapidapi.com"
-  }
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "buildCommand": "node scripts/build-config.mjs",
+  "installCommand": null,
+  "outputDirectory": "public",
+  "cleanUrls": true,
+  "functions": {
+    "api/*.js": { "maxDuration": 60 }
+  },
+  "rewrites": [
+    { "source": "/r/:room", "destination": "/room.html" },
+    { "source": "/play", "destination": "/room.html" }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "Referrer-Policy", "value": "no-referrer" },
+        { "key": "X-Frame-Options", "value": "SAMEORIGIN" }
+      ]
+    }
+  ]
 }
