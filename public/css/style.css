@@ -53,7 +53,6 @@
   --text: "Barlow", system-ui, -apple-system, "Segoe UI", sans-serif;
   --code: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
   --ease: cubic-bezier(0.19, 1, 0.22, 1);
-  --spring: cubic-bezier(0.22, 1, 0.36, 1);
   --r: 2px;
 }
 
@@ -370,7 +369,7 @@ dialog[open] { animation: rise 0.22s var(--ease); }
 
 /* Theme picker */
 .themes { display: inline-flex; gap: 6px; align-items: center; }
-.swatch { width: 26px; height: 26px; padding: 0; border: 1px solid var(--rule); border-radius: var(--r); background: linear-gradient(90deg, var(--a) 0 34%, var(--b) 34% 67%, var(--c) 67%); transition: transform 0.25s var(--spring), border-color 0.2s; }
+.swatch { width: 26px; height: 26px; padding: 0; border: 1px solid var(--rule); border-radius: var(--r); background: linear-gradient(90deg, var(--a) 0 34%, var(--b) 34% 67%, var(--c) 67%); transition: transform 0.25s var(--ease), border-color 0.2s; }
 .swatch:hover { transform: translateY(-2px); }
 .swatch[aria-pressed="true"] { border-color: var(--ink); outline: 2px solid var(--amber); outline-offset: 2px; }
 
@@ -402,22 +401,22 @@ dialog[open] { animation: rise 0.22s var(--ease); }
 .panel:hover::before { opacity: 1; }
 .panel .lane { animation: rowIn 0.7s var(--ease) both; animation-delay: calc(var(--k, 0) * 120ms + 500ms); }
 @keyframes rowIn { from { opacity: 0; transform: translateX(-18px); } }
-.lever span { transition: transform 0.45s var(--spring), background-color 0.3s; }
+.lever span { transition: transform 0.45s var(--ease), background-color 0.3s; }
 .lane-track .rail, .lane-track .station { transition: border-color 0.4s, color 0.4s; }
-.role-plate.stamp { animation: stamp 0.55s var(--spring); }
+.role-plate.stamp { animation: stamp 0.55s var(--ease); }
 @keyframes stamp { from { transform: scale(1.7) rotate(-4deg); opacity: 0; } }
 .panel-doc .verdict { animation: rowIn 0.35s var(--ease); }
 
 .sched-row { position: relative; }
 .sched-row::before { content: ""; position: absolute; top: -1px; left: 0; height: 1px; width: 100%; background: var(--c, var(--ink-3)); transform: scaleX(0); transform-origin: left; transition: transform 1s var(--ease); }
 .sched-row.in::before { transform: scaleX(1); }
-.sched-row .badge { transition: transform 0.35s var(--spring), background-color 0.3s; }
+.sched-row .badge { transition: transform 0.35s var(--ease), background-color 0.3s; }
 .sched-row:hover .badge { transform: translateY(-3px) rotate(-3deg); background: color-mix(in srgb, var(--c) 12%, transparent); }
-.also-item i { transition: transform 0.4s var(--spring); }
+.also-item i { transition: transform 0.4s var(--ease); }
 .also-item:hover i { transform: translateY(-3px) scale(1.15); }
 .board-col li { transition: transform 0.25s var(--ease); }
 .board-col li:hover { transform: translateX(4px); }
-.close .btn { transition: transform 0.3s var(--spring); }
+.close .btn { transition: transform 0.3s var(--ease); }
 .close .btn:hover { transform: translateY(-3px); }
 
 .progress { position: fixed; left: 16px; top: 88px; bottom: 28px; width: 2px; background: var(--rule-soft); z-index: 10; display: none; }
@@ -439,7 +438,7 @@ dialog[open] { animation: rise 0.22s var(--ease); }
 .file .x { display: grid; place-items: center; width: 20px; height: 20px; border-radius: var(--r); color: var(--ink-3); background: none; border: 0; opacity: 0; transition: opacity 0.15s, background-color 0.15s; }
 .file:hover .x, .file[aria-selected="true"] .x { opacity: 1; }
 .file .x:hover { background: var(--plate-2); color: var(--red); }
-.file-new { display: grid; place-items: center; width: 38px; flex: none; border: 0; background: none; color: var(--ink-3); font-size: 18px; transition: color 0.2s, transform 0.3s var(--spring); }
+.file-new { display: grid; place-items: center; width: 38px; flex: none; border: 0; background: none; color: var(--ink-3); font-size: 18px; transition: color 0.2s, transform 0.3s var(--ease); }
 .file-new:hover { color: var(--amber); transform: rotate(90deg); }
 .file-input { align-self: center; margin: 0 6px; height: 26px; width: 160px; font: 500 13px var(--code); }
 @keyframes fileIn { from { opacity: 0; transform: translateY(-6px); } }
