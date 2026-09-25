@@ -358,3 +358,54 @@ export const languageForFile = (name) => EXT_TO_LANG[extOf(name)] ?? null;
 export const monacoForFile = (name) => { const id = languageForFile(name); return id ? LANGUAGES[id].monaco : PLAIN_EXT[extOf(name)] ?? "plaintext"; };
 // File names stay flat: letters, numbers, dots, dashes and spaces.
 export const validFileName = (name) => /^[\w][\w .-]{0,59}$/.test(name);
+
+/* ── Does this program read from standard input? ─────────────────
+   Compiler services take their input before the program starts, so the terminal has to know how
+   many lines to collect first. Counting the read calls in the source is a rough guess, but it is
+   right for the kind of program people paste into a shared editor, and the visitor can always
+   stop early. Languages that run in the browser are not listed here: they simply ask when they
+   run out. */
+const INPUT_READS = {
+  c: /\b(?:scanf|fscanf|getchar|gets|fgets|getline)\s*\(/g,
+  cpp: /\b(?:scanf|getline|getchar|fgets)\s*\(|\bcin\s*>>/g,
+  csharp: /Console\s*\.\s*ReadLine\s*\(/g,
+  java: /\.\s*(?:nextLine|nextInt|nextDouble|nextFloat|nextLong|next|readLine)\s*\(/g,
+  kotlin: /\breadLine\s*\(|\breadln\s*\(/g,
+  scala: /\breadLine\s*\(|\breadInt\s*\(/g,
+  groovy: /\breadLine\s*\(/g,
+  rust: /\bread_line\s*\(/g,
+  go: /\b(?:Scan|Scanln|Scanf|ReadString|ReadLine)\s*\(/g,
+  zig: /\breadUntilDelimiter\w*\s*\(/g,
+  nim: /\breadLine\s*\(/g,
+  crystal: /\bgets\b/g,
+  dlang: /\breadln\s*\(/g,
+  swift: /\breadLine\s*\(/g,
+  pascal: /\breadln\s*\(|\bread\s*\(/gi,
+  fortran: /\bread\s*\(/gi,
+  cobol: /\bACCEPT\b/gi,
+  ruby: /\bgets\b/g,
+  php: /\b(?:fgets|readline|stream_get_line)\s*\(/g,
+  perl: /<STDIN>/g,
+  lua: /\bio\s*\.\s*read\s*\(/g,
+  bash: /^\s*read\b/gm,
+  typescript: /\breadFileSync\s*\(\s*0|\bprompt\s*\(/g,
+  dart: /\breadLineSync\s*\(/g,
+  haskell: /\bgetLine\b/g,
+  ocaml: /\binput_line\b/g,
+  julia: /\breadline\s*\(/g,
+  r: /\breadLines\s*\(|\breadline\s*\(/g,
+};
+
+/** How many lines of standard input this source looks like it wants. Zero when it reads nothing. */
+export function countInputReads(languageId, source) {
+  const pattern = INPUT_READS[languageId];
+  if (!pattern) return 0;
+  // Ignore anything inside a comment or a string, so a printed prompt is not mistaken for a read.
+  const stripped = String(source)
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .replace(/(^|\s)(?:\/\/|#|--)[^\n]*/g, "$1")
+    .replace(/"(?:[^"\\\n]|\\.)*"/g, '""')
+    .replace(/'(?:[^'\\\n]|\\.)*'/g, "''");
+  pattern.lastIndex = 0;
+  return (stripped.match(pattern) ?? []).length;
+}

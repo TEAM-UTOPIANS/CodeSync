@@ -74,8 +74,10 @@ or just sketching an idea with a friend.
 - Monaco, the editor from VS Code, with syntax highlighting for every supported language.
 - **An integrated terminal.** One pane, the way an editor's terminal works: program output and the
   lines you type share a single transcript. Type ahead of a run and the lines become that program's
-  standard input; when a local program reads past what you gave it, the prompt lights up and waits
-  for the next line. Up and down walk your history, Ctrl+C gives up on a prompt, and Enter on an
+  standard input; when a program that runs in your browser reads past what you gave it, the prompt
+  lights up and waits for the next line. A language built on a compiler service cannot be asked
+  mid-run, so the terminal counts the reads in the source and collects those lines before it
+  starts. Up and down walk your history, Ctrl+C gives up on a prompt, and Enter on an
   empty prompt runs the project.
 - Command palette on `Ctrl/Cmd + K` for every action and a fuzzy language switcher.
 - Live web preview that assembles your HTML, CSS and JavaScript files and refreshes as you type.
@@ -252,6 +254,10 @@ stop after 50,000 steps so a runaway loop cannot hang the tab.
   languages are served by both providers; 11 are Wandbox only and 7 (Kotlin, Crystal, Swift, Dart,
   OCaml, Fortran, COBOL) are Compiler Explorer only, so those have no fallback.
 - A room holds up to 30 people and 12 files.
+- A program on a compiler service prints everything at once when it finishes, so its own prompts
+  arrive together rather than one at a time. Programs that run in the browser interleave properly.
+- The count of input reads for those languages comes from reading the source, so a program that
+  loops over its input can ask for more lines than the terminal offered.
 
 ## Talking about this project
 
@@ -404,8 +410,14 @@ has shown and skips that many in the replay, which is the `visiblePart` helper a
 test pins down. For the deterministic scripts people write in a shared editor this is
 indistinguishable from a program that paused and carried on. In JavaScript the trigger is a sentinel
 thrown from `input()`; in Python it is the `EOFError` that Pyodide raises; in MiniLang the
-interpreter already reported that it was waiting. Remote languages get their standard input once,
-when the build request is sent, because a compiler service has no channel to ask for more.
+interpreter already reported that it was waiting.
+
+A compiler service is a different shape of problem: it builds and runs in one request and has no
+channel to ask for anything, so replay cannot help. There the terminal reads the source instead,
+counts the calls that take standard input for that language (`scanf`, `cin >>`, `Scanner.nextLine`,
+`readLine`, `gets`, and so on, ignoring comments and strings), and asks for that many lines before
+sending the request. It is a heuristic, which is why the prompt says how many lines it wants and
+Ctrl+C runs without them.
 
 The one visible cost is that a non-deterministic program, one that prints the time or a random
 number, can show a changed prefix on replay. That is written down rather than hidden.

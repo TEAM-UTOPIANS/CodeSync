@@ -115,8 +115,11 @@ export function createTerminal(root, { onRun } = {}) {
   });
 
   return {
-    /** Empty the transcript. Queued input survives, because the visitor typed it on purpose. */
-    clear() { view.replaceChildren(); },
+    /** Empty the transcript and anything typed ahead, so nothing invisible leaks into the next run. */
+    clear() {
+      view.replaceChildren();
+      queue.length = 0;
+    },
     write,
     /** Everything shown, for the copy button. */
     text: () => [...view.children].map((n) => n.textContent).join("\n"),

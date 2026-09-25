@@ -2,7 +2,7 @@ import { Y, persist, connectRoom, serverUrl } from "./net.js";
 import { connectPeers } from "./p2p.js";
 import { createRemoteCursors } from "./binding.js";
 import { createProject, MAX_FILES } from "./project.js";
-import { LANGUAGES, LANGUAGE_IDS, GROUPS, languageForFile, extOf, validFileName } from "./languages.js";
+import { LANGUAGES, LANGUAGE_IDS, GROUPS, languageForFile, extOf, validFileName, countInputReads } from "./languages.js";
 import { runCode } from "./runners.js";
 import { buildPreview, previewEntry } from "./preview.js";
 import { encodeSnapshot, decodeSnapshot } from "./snapshot.js";
@@ -458,9 +458,25 @@ async function main() {
     selectTab("terminal");
 
     // Whatever was typed ahead of the run is this program's standard input.
-    const stdin = term.takeQueued().join("\n");
+    let stdin = term.takeQueued().join("\n");
     chunks.length = 0;
     term.write(`\n$ run ${name}\n`, "cmd");
+
+    // A compiler service builds and runs the program in one request, so it cannot come back and
+    // ask for more. If the source reads more lines than we have, collect them first.
+    if (LANGUAGES[id].runtime === "remote") {
+      const supplied = stdin ? stdin.split("\n").length : 0;
+      const wanted = countInputReads(id, project.text(name)) - supplied;
+      if (wanted > 0) {
+        term.write(`This language is built on a compiler service, which needs the input before it starts.\n`, "meta");
+        term.write(`Type ${wanted} line${wanted === 1 ? "" : "s"} of input, or press Ctrl+C to run without ${wanted === 1 ? "it" : "them"}.\n`, "meta");
+        for (let i = 0; i < wanted; i++) {
+          const line = await term.ask();
+          if (line === null) break;
+          stdin = stdin ? `${stdin}\n${line}` : line;
+        }
+      }
+    }
 
     const started = performance.now();
     let result = { ok: false };
