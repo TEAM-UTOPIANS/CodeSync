@@ -23,8 +23,11 @@ self.onmessage = async ({ data: { code, stdin, files = [] } }) => {
     const lines = stdin ? stdin.replace(/\r\n?/g, "\n").split("\n") : [];
     let idx = 0;
     pyodide.setStdin({ stdin: () => (idx < lines.length ? lines[idx++] : undefined) });
-    pyodide.setStdout({ batched: (s) => post("stdout", s + "\n") });
-    pyodide.setStderr({ batched: (s) => post("stderr", s + "\n") });
+    // Raw writes rather than batched lines: input("name? ") prints a prompt with no newline, and a
+    // terminal has to show it before the program blocks.
+    const decoder = new TextDecoder();
+    pyodide.setStdout({ write: (buffer) => { post("stdout", decoder.decode(buffer, { stream: true })); return buffer.length; } });
+    pyodide.setStderr({ write: (buffer) => { post("stderr", decoder.decode(buffer, { stream: true })); return buffer.length; } });
 
     // Other project files become importable modules in the working directory.
     for (const name of written) if (!files.some((f) => f.name === name)) { try { pyodide.FS.unlink(name); } catch { /* already gone */ } }
@@ -38,6 +41,9 @@ self.onmessage = async ({ data: { code, stdin, files = [] } }) => {
       self.postMessage({ type: "done", ok: true });
     } catch (e) {
       const message = String(e.message || e).trimEnd();
+      // Python raises EOFError when input() runs past what we supplied. That is a question,
+      // not a failure: the page collects another line and runs the program again.
+      if (/EOFError/.test(message)) { self.postMessage({ type: "done", ok: false, needInput: true }); return; }
       post("stderr", cleanTraceback(message) + "\n");
       const lines = [...message.matchAll(/File "<exec>", line (\d+)/g)];
       const last = lines.at(-1);

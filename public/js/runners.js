@@ -46,7 +46,7 @@ function runInWorker(lang, code, stdin, { write, status }, files) {
       else if (data.type === "done") {
         cleanup();
         if (isPy) pyWarm = true; else worker.terminate();
-        resolve({ ok: data.ok, error: data.error });
+        resolve({ ok: data.ok, error: data.error, needInput: data.needInput });
       } else write(data.text, data.type);
     };
     worker.onerror = (e) => {
@@ -131,22 +131,69 @@ async function runRemote(id, code, stdin, { write, status }, files) {
 /* ── Public API ──────────────────────────────────────────────────── */
 
 /**
- * Run code. `files` are the project's other files ({name, code}). Output streams through hooks.write(text, "stdout"|"stderr"|"meta").
- * Resolves {ok, error?: {line, col, message}, meta?: {provider, version, timeMs, exitCode}, preview?: true}.
+ * Decide how much of a chunk is new. When a program asks for another line we run it again from the
+ * start, so the first `shown` characters of the new transcript are a repeat of what is already on
+ * screen and must not be printed twice.
+ */
+export function visiblePart(shown, producedBefore, text) {
+  const skip = Math.max(0, Math.min(text.length, shown - producedBefore));
+  return text.slice(skip);
+}
+
+/** One attempt at a local run: MiniLang in this thread, everything else in a worker. */
+async function runOnce(id, code, stdin, hooks, files) {
+  if (id === "minilang") {
+    const r = runMiniLang(code, { stdin });
+    if (r.stdout) hooks.write(r.stdout + "\n", "stdout");
+    if (r.status === "WAITING_FOR_INPUT") return { ok: false, needInput: true, error: r.error };
+    if (!r.ok) hooks.write(`${r.error.message}\n`, "stderr");
+    return { ok: r.ok, error: r.error };
+  }
+  return runInWorker(id, code, stdin, hooks, files);
+}
+
+/**
+ * Run something locally, asking the page for another line whenever the program reads past the end
+ * of its input. Programs cannot be paused mid-run in a worker without cross-origin isolation, so
+ * each answer replays the program from the start with the longer input; output already on screen is
+ * not repeated.
+ */
+async function runLocal(id, code, stdin, hooks, files) {
+  let input = stdin;
+  let shown = 0;
+  let last = { ok: false };
+
+  for (let attempt = 0; attempt < 32; attempt++) {
+    let produced = 0;
+    const write = (text, kind) => {
+      const visible = visiblePart(shown, produced, text);
+      produced += text.length;
+      if (visible) hooks.write(visible, kind);
+    };
+    last = await runOnce(id, code, input, { ...hooks, write }, files);
+    shown = Math.max(shown, produced);
+
+    if (!last.needInput || !hooks.needInput) break;
+    const line = await hooks.needInput();
+    if (line === null) {
+      hooks.write("\nNo more input, so the program stopped here.\n", "meta");
+      return { ok: false, stopped: true };
+    }
+    input = input ? `${input}\n${line}` : line;
+  }
+  return last;
+}
+
+/**
+ * Run `code`. Output streams through hooks.write(text, "stdout"|"stderr"|"meta").
+ * `hooks.needInput()` is optional: when a local program reads past its input, it is asked for
+ * another line and resolves with the text, or null to give up.
+ * `files` are the project's other files, sent along so imports and includes resolve.
+ * Resolves {ok, error?: {line, col, message}, meta?: {provider, version, timeMs, exitCode}, preview?}.
  */
 export async function runCode(id, code, stdin, hooks, files = []) {
   const lang = LANGUAGES[id];
   if (lang.runtime === "preview") return { ok: true, preview: true };
-  if (id === "minilang") {
-    const r = runMiniLang(code, { stdin });
-    if (r.stdout) hooks.write(r.stdout + "\n", "stdout");
-    if (r.status === "WAITING_FOR_INPUT") {
-      hooks.write(`\nThe program is waiting for input for '${r.inputVar}'. Add a line in the Input tab and run again.\n`, "stderr");
-      return { ok: false, error: r.error };
-    }
-    if (!r.ok) hooks.write(`${r.error.message}\n`, "stderr");
-    return { ok: r.ok, error: r.error };
-  }
-  if (lang.runtime === "browser") return runInWorker(id, code, stdin, hooks, files);
-  return runRemote(id, code, stdin, hooks, files);
+  if (lang.runtime === "remote") return runRemote(id, code, stdin, hooks, files);
+  return runLocal(id, code, stdin, hooks, files);
 }

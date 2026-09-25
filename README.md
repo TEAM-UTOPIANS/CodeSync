@@ -54,7 +54,8 @@ or just sketching an idea with a friend.
 - Everybody's cursor and selection, labelled with their name, across every file in the project.
 - **Follow mode**: click a person to ride along as they move around the project.
 - Chat with history for the life of the room.
-- **Shared output**: when an editor runs the project, the whole room sees the result.
+- **Shared output**: when an editor runs the project, the whole room sees the result in their own
+  terminal.
 
 **Who can do what**
 - Three roles: host, editor, viewer. Enforced server side.
@@ -71,6 +72,11 @@ or just sketching an idea with a friend.
 
 **The editor**
 - Monaco, the editor from VS Code, with syntax highlighting for every supported language.
+- **An integrated terminal.** One pane, the way an editor's terminal works: program output and the
+  lines you type share a single transcript. Type ahead of a run and the lines become that program's
+  standard input; when a local program reads past what you gave it, the prompt lights up and waits
+  for the next line. Up and down walk your history, Ctrl+C gives up on a prompt, and Enter on an
+  empty prompt runs the project.
 - Command palette on `Ctrl/Cmd + K` for every action and a fuzzy language switcher.
 - Live web preview that assembles your HTML, CSS and JavaScript files and refreshes as you type.
 - Four themes (Cream, Midnight, Bubblegum, Ocean) that also recolour the code.
@@ -187,6 +193,8 @@ public/                 the whole frontend, no build step
     runners.js          send the code to a worker, the preview or a compiler
     minilang.js         MiniLang: lexer, parser, checker, interpreter
     preview.js          assemble HTML, CSS and JS files into one preview document
+    terminal.js         the integrated terminal: transcript, prompt, input queue
+    clipboard.js        copying that still works when the clipboard API refuses
     snapshot.js ui.js themes.js
     workers/            js-worker.js, py-worker.js
 server/                 Socket.IO room server (rooms.js holds every permission rule)
@@ -293,6 +301,7 @@ serverless function to public compiler services, with a second service as fallba
 | Rooms in memory, no database | Nothing to pay for, nothing to leak, and a room is a session rather than a document | A restart clears rooms, and one instance cannot share rooms with another |
 | Execution split between browser and remote | Python and JavaScript feel instant and stay private; compiled languages need a real toolchain | Two code paths to maintain, and remote languages depend on services we do not own |
 | Public compiler services instead of Judge0 or a sandbox we run | Free, no API key, no container budget | Rate limits, occasional outages, and code leaving the browser for those languages |
+| Replay instead of `SharedArrayBuffer` for interactive input | Keeps COOP/COEP off, so Monaco, Pyodide and the fonts still load from a CDN | A non-deterministic program can print a different prefix on replay |
 | Base64 on the wire for document updates | One representation that behaves the same in Node and the browser | Roughly a third more bytes than raw binary |
 | Monaco instead of CodeMirror | The editor people already know from VS Code, with a language mode for everything we support | A large download, so it comes from a CDN and is the heaviest asset on the page |
 | No build step for the frontend | `git clone` and open it; nothing between the source and the page | No bundling, tree shaking or type checking |
@@ -379,6 +388,27 @@ turned into a Monaco marker, and editors also broadcast the output so the whole 
   than assertions.
 - `npm run verify:languages` is a live check: it sends all 33 starter programs to the real services
   and reports what actually built.
+
+### Interactive input without cross-origin isolation
+
+The terminal can ask a running program for another line, which sounds like it needs a blocking read
+inside the worker. It does, and the only real way to block a worker on the main thread is
+`Atomics.wait` on a `SharedArrayBuffer`, which needs COOP and COEP headers. Turning those on would
+break every cross-origin script the page loads (Monaco, Pyodide, the icon font), so the project does
+something simpler and honest instead.
+
+When a local program reads past the input it was given, the worker reports `needInput` rather than
+failing. The page asks the terminal for a line, appends it to the input, and **runs the program again
+from the start**. Output already on screen is not printed twice: the runner counts the characters it
+has shown and skips that many in the replay, which is the `visiblePart` helper and the thing the unit
+test pins down. For the deterministic scripts people write in a shared editor this is
+indistinguishable from a program that paused and carried on. In JavaScript the trigger is a sentinel
+thrown from `input()`; in Python it is the `EOFError` that Pyodide raises; in MiniLang the
+interpreter already reported that it was waiting. Remote languages get their standard input once,
+when the build request is sent, because a compiler service has no channel to ask for more.
+
+The one visible cost is that a non-deterministic program, one that prints the time or a random
+number, can show a changed prefix on replay. That is written down rather than hidden.
 
 ### Problems worth talking about
 

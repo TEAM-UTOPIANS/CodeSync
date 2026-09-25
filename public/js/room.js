@@ -7,6 +7,8 @@ import { runCode } from "./runners.js";
 import { buildPreview, previewEntry } from "./preview.js";
 import { encodeSnapshot, decodeSnapshot } from "./snapshot.js";
 import { THEMES, savedPreference, setTheme, currentTheme, defineMonacoTheme } from "./themes.js";
+import { createTerminal } from "./terminal.js";
+import { copyText } from "./clipboard.js";
 import { toast, langTile, anchorMenu, createPalette } from "./ui.js";
 
 const $ = (id) => document.getElementById(id);
@@ -217,10 +219,12 @@ async function main() {
     onChange: () => { clearTimeout(previewTimer); previewTimer = setTimeout(updatePreview, 350); },
   });
   const cursors = createRemoteCursors(monaco, editor, () => project.active ?? "");
+  // The terminal is created early because the file panes talk to it as soon as a file opens.
+  const term = createTerminal($("terminal"), { onRun: () => run() });
 
   /* Console tabs ------------------------------------------------ */
-  const panes = { output: $("output"), stdin: $("stdin-pane"), preview: $("preview-pane") };
-  let openTab = "output";
+  const panes = { terminal: $("terminal"), preview: $("preview-pane") };
+  let openTab = "terminal";
   // Switch the console between output, input and preview.
   function selectTab(name) {
     openTab = name;
@@ -249,7 +253,7 @@ async function main() {
   function updatePreview() {
     const entry = previewEntry(project.all(), project.active ?? "");
     $("tab-preview").hidden = !entry;
-    if (!entry) { if (openTab === "preview") selectTab("output"); return; }
+    if (!entry) { if (openTab === "preview") selectTab("terminal"); return; }
     $("preview").srcdoc = buildPreview(project.all(), entry);
   }
 
@@ -264,7 +268,9 @@ async function main() {
     $("lang-label").textContent = l ? l.label : "Plain text";
     $("file-status").textContent = name;
     $("runtime-info").textContent = runtimeLabel(id);
-    if (l?.stdin && !$("stdin").value) $("stdin").value = l.stdin;
+    // The sample input belongs to the sample program, so it is only offered while the file is
+    // still the starter template.
+    if (l?.stdin && project.text(name).trim() === l.template.trim()) term.preload(l.stdin);
     if (id !== lastLang) {
       lastLang = id;
       if (l?.runtime === "preview") selectTab("preview");
@@ -286,7 +292,6 @@ async function main() {
     const untouched = !body || (current && body === LANGUAGES[current].template.trim());
     if (!project.rename(name, target)) { nameProblem(target); return; }
     if (untouched) project.setText(target, LANGUAGES[id].template);
-    $("stdin").value = LANGUAGES[id].stdin || "";
   }
 
   // Fill an empty project: a shared snapshot if the link had one, otherwise a starter file.
@@ -392,42 +397,37 @@ async function main() {
     }
   }
 
-  /* Output ------------------------------------------------------ */
-  const out = $("output");
-  let chunks = [], budget = 0, filler = null;
+  /* Terminal ---------------------------------------------------- */
+  const chunks = [];
+  // Terminal colours: the runners speak in stdout/stderr/meta.
+  const KIND = { stdout: "out", stderr: "err", meta: "meta", who: "who", cmd: "cmd" };
+
   // The short run summary beside the console tabs.
   function setVerdict(text, kind = "") {
     const node = $("verdict");
     node.className = `verdict ${kind}`;
     node.replaceChildren(...(kind ? [el("i", `dot ${kind === "ok" ? "ok" : kind === "bad" ? "bad" : "warn"}`)] : []), document.createTextNode(text));
   }
-  // Put a placeholder in the output pane.
-  function showFiller(html, cls) {
-    out.replaceChildren();
-    filler = Object.assign(el("div", cls), { innerHTML: html });
-    out.append(filler);
-  }
-  // Nothing has run yet.
-  const showBlank = () => showFiller(`<i class="ph ph-terminal-window"></i><span>Run the project to see its output here</span><span class="quiet-note"><kbd>${MOD}</kbd> <kbd>↵</kbd></span>`, "blank");
-  // Something is running.
-  const showSkeleton = () => showFiller("<i></i><i></i><i></i>", "skel");
-  // Empty the output pane and forget what it held.
-  function clearOutput() { chunks = []; budget = 200_000; showBlank(); setVerdict(""); }
-  // Append one chunk of output, stopping once the pane has had enough.
+
+  // Append one chunk of program output, keeping a copy for the room and the clipboard.
   function write(text, kind = "stdout") {
-    if (budget <= 0) return;
-    filler?.remove();
-    filler = null;
-    budget -= text.length;
     chunks.push([text, kind]);
-    out.append(el("span", kind, budget < 0 ? `${text.slice(0, text.length + budget)}\n... output truncated\n` : text));
-    out.scrollTop = out.scrollHeight;
+    if (chunks.length > 500) chunks.shift();
+    term.write(text, KIND[kind] ?? "out");
   }
-  clearOutput();
+
+  // Wipe the transcript and forget what it held.
+  function clearOutput() {
+    chunks.length = 0;
+    term.clear();
+    setVerdict("");
+  }
+
+  term.write(`Type a line and press Enter to hand it to the next run. ${MOD} + Enter runs.\n`, "meta");
   $("clear").addEventListener("click", () => { clearOutput(); monaco.editor.setModelMarkers(editor.getModel(), "run", []); });
   $("copy-output").addEventListener("click", async () => {
-    try { await navigator.clipboard.writeText(chunks.map(([t]) => t).join("")); toast("Output copied"); }
-    catch { toast("Could not copy the output", "ph-warning"); }
+    if (await copyText(term.text())) toast("Terminal copied");
+    else toast("Could not copy the terminal", "ph-warning");
   });
   editor.onDidChangeModelContent(() => monaco.editor.setModelMarkers(editor.getModel(), "run", []));
 
@@ -452,24 +452,32 @@ async function main() {
     running = true;
     runBtn.disabled = true;
     $("run-label").textContent = "Running";
-    clearOutput();
-    showSkeleton();
+    term.setBusy(true);
     setVerdict("Working", "busy");
     monaco.editor.setModelMarkers(editor.getModel(), "run", []);
-    selectTab("output");
+    selectTab("terminal");
+
+    // Whatever was typed ahead of the run is this program's standard input.
+    const stdin = term.takeQueued().join("\n");
+    chunks.length = 0;
+    term.write(`\n$ run ${name}\n`, "cmd");
 
     const started = performance.now();
     let result = { ok: false };
     try {
-      result = await runCode(id, project.text(name), $("stdin").value, { write, status: (t) => setVerdict(t, "busy") }, files.filter((f) => f.name !== name));
+      result = await runCode(id, project.text(name), stdin, {
+        write,
+        status: (t) => setVerdict(t, "busy"),
+        // Local programs can ask for another line; the terminal collects it.
+        needInput: LANGUAGES[id].runtime === "browser" ? () => term.ask() : undefined,
+      }, files.filter((f) => f.name !== name));
     } catch (e) {
       write(`Unexpected error: ${e.message}\n`, "stderr");
     } finally {
       running = false;
       runBtn.disabled = false;
       $("run-label").textContent = "Run";
-      filler?.remove();
-      filler = null;
+      term.setBusy(false);
       if (!chunks.length) write("The program finished without printing anything.\n", "meta");
     }
 
@@ -837,7 +845,7 @@ async function main() {
       write(`${String(r.by).slice(0, 20)} ran ${String(r.summary || "the project").split(" · ")[0].slice(0, 40)}\n\n`, "who");
       for (const [text, kind] of r.segs || []) write(String(text), ["stdout", "stderr", "meta"].includes(kind) ? kind : "stdout");
       setVerdict(`${r.ok ? "Finished" : "Failed"} · ${String(r.summary).slice(0, 80)}`, r.ok ? "ok" : "bad");
-      selectTab("output");
+      selectTab("terminal");
     },
     onRole: (next) => {
       const before = role;
@@ -880,8 +888,10 @@ async function main() {
 
   /* Sharing and files ------------------------------------------- */
   const copy = async (text, ok) => {
-    try { await navigator.clipboard.writeText(text); toast(ok); }
-    catch { window.prompt("Copy this link", text); }
+    if (await copyText(text)) { toast(ok); return; }
+    // Browsers refuse the clipboard when the page is not focused, so never fail silently.
+    toast("The browser blocked the clipboard, so here is the link", "ph-warning");
+    window.prompt("Copy this link", text);
   };
   // Copy the plain room link.
   const copyInvite = () => (solo ? toast("Open a room to invite people", "ph-info") : copy(`${location.origin}/r/${roomId}`, "Invite link copied"));
@@ -913,6 +923,11 @@ async function main() {
     if (!project.create(name, await file.text())) { nameProblem(name); return; }
     toast(`Added ${name}`, "ph-folder-open");
   });
+  if (!solo) {
+    $("room-id").style.cursor = "pointer";
+    $("room-id").title = "Copy the invite link";
+    $("room-id").addEventListener("click", copyInvite);
+  }
   anchorMenu($("share-btn"), $("share-menu"));
   $("m-invite").addEventListener("click", copyInvite);
   $("m-snapshot").addEventListener("click", copySnapshot);

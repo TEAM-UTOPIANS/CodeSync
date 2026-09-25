@@ -60,16 +60,14 @@
       <div class="grip" id="grip" role="separator" aria-orientation="horizontal" aria-label="Resize the console"></div>
       <div class="console">
         <div class="tabs" role="tablist">
-          <button class="tab" role="tab" id="tab-output" aria-selected="true"><i class="ph ph-terminal"></i>Output</button>
-          <button class="tab" role="tab" id="tab-stdin" aria-selected="false"><i class="ph ph-keyboard"></i>Input</button>
+          <button class="tab" role="tab" id="tab-terminal" aria-selected="true"><i class="ph ph-terminal"></i>Terminal</button>
           <button class="tab" role="tab" id="tab-preview" aria-selected="false" hidden><i class="ph ph-browser"></i>Preview</button>
           <span class="spacer"></span>
           <span class="verdict" id="verdict"></span>
-          <button class="btn sm icon quiet" id="copy-output" title="Copy the output" aria-label="Copy the output"><i class="ph ph-copy"></i></button>
-          <button class="btn sm icon quiet" id="clear" title="Clear the output" aria-label="Clear the output"><i class="ph ph-trash"></i></button>
+          <button class="btn sm icon quiet" id="copy-output" title="Copy everything in the terminal" aria-label="Copy everything in the terminal"><i class="ph ph-copy"></i></button>
+          <button class="btn sm icon quiet" id="clear" title="Clear the terminal" aria-label="Clear the terminal"><i class="ph ph-trash"></i></button>
         </div>
-        <div class="pane" id="output" role="tabpanel" aria-live="polite"></div>
-        <div class="pane" id="stdin-pane" role="tabpanel" hidden><textarea id="stdin" placeholder="Anything your program reads from standard input, one line per read" spellcheck="false" aria-label="Standard input"></textarea></div>
+        <div class="pane terminal" id="terminal" role="tabpanel"></div>
         <div class="pane" id="preview-pane" role="tabpanel" hidden><iframe id="preview" title="Live preview" sandbox="allow-scripts allow-forms allow-modals allow-popups"></iframe></div>
       </div>
     </section>

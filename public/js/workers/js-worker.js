@@ -32,7 +32,13 @@ self.onmessage = async ({ data: { code, stdin, files = [] } }) => {
     }
     return cache.get(name).exports;
   };
-  self.input = self.prompt = () => (inputIdx < inputLines.length ? inputLines[inputIdx++] : null);
+  // Reading past the end of the supplied input is not an error: the page asks the visitor for
+  // another line and runs the program again with it.
+  const NEED_INPUT = { needInput: true };
+  self.input = self.prompt = () => {
+    if (inputIdx < inputLines.length) return inputLines[inputIdx++];
+    throw NEED_INPUT;
+  };
 
   // `done` fires once the main body settled AND no timers are pending, so setTimeout demos work.
   const timers = new Set();
@@ -41,13 +47,14 @@ self.onmessage = async ({ data: { code, stdin, files = [] } }) => {
   const finish = (ok) => {
     if (finished) return;
     finished = true;
-    self.postMessage({ type: "done", ok, error: errorInfo });
+    self.postMessage({ type: "done", ok, error: errorInfo, needInput });
   };
   // Done only when the main body settled and no timers are still pending.
   const maybeFinish = () => { if (mainSettled && timers.size === 0) finish(!failed); };
-  let failed = false, errorInfo = null;
+  let failed = false, errorInfo = null, needInput = false;
   // Print an error and remember where in the user's code it came from.
   const fail = (e) => {
+    if (e === NEED_INPUT) { needInput = true; return; }
     failed = true;
     if (e instanceof Error) {
       post("stderr", `${e.name}: ${e.message}\n`);

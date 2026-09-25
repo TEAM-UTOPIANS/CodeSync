@@ -21,3 +21,20 @@ test("picks the preview entry", () => {
   assert.equal(previewEntry(files, "about.html"), "about.html");
   assert.equal(previewEntry([{ name: "a.py", code: "" }], "a.py"), null);
 });
+
+// Asking a local program for another line means replaying it, so the transcript must not repeat
+// what the visitor already saw.
+import { visiblePart } from "../public/js/runners.js";
+
+test("replayed output only shows the part that is new", () => {
+  // Nothing shown yet: everything is new.
+  assert.equal(visiblePart(0, 0, "name? "), "name? ");
+  // Six characters already on screen, and this attempt reprints them first.
+  assert.equal(visiblePart(6, 0, "name? age? "), "age? ");
+  // A chunk entirely inside what was already shown prints nothing.
+  assert.equal(visiblePart(11, 0, "name? "), "");
+  // A chunk that starts after the shown prefix prints in full.
+  assert.equal(visiblePart(6, 6, "age? "), "age? ");
+  // Partial overlap across two chunks.
+  assert.equal(visiblePart(8, 6, "age? "), "e? ");
+});
