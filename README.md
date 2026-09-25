@@ -4,7 +4,7 @@
 
 # CodeSync
 
-**Share the room. Keep the pen.**
+**Ctrl + Alt + Together.**
 
 A live code editor that runs in the browser. Open a room, send one link, and build the same
 multi-file project together. The host picks who can edit and who is only watching, and the room
