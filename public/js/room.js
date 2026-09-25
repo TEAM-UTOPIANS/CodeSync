@@ -17,12 +17,14 @@ const store = {
 };
 const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
 const MOD = isMac ? "⌘" : "Ctrl";
+// Small DOM helper: tag, class, text.
 const el = (tag, cls, text) => {
   const n = document.createElement(tag);
   if (cls) n.className = cls;
   if (text !== undefined) n.textContent = text;
   return n;
 };
+// A Phosphor icon element.
 const icon = (name) => el("i", `ph ${name}`);
 const TEAM = ["Mayank Karki", "Nitin Kandpal", "Swarit Kumar"];
 const TEAM_COLORS = ["#ffb3a0", "#9ceccd", "#b9ccff"];
@@ -34,6 +36,7 @@ if (solo && !location.pathname.startsWith("/play")) location.replace("/");
 const roomId = solo ? "solo" : roomMatch[1].toLowerCase();
 const snapMatch = solo ? location.hash.match(/[#&]s=([\w-]+)/) : null;
 const snapFragment = snapMatch ? snapMatch[1] : null;
+// A cheap stable hash, used to key a snapshot's local copy.
 const hash32 = (s) => { let h = 5381; for (const c of s) h = ((h << 5) + h + c.charCodeAt(0)) >>> 0; return h.toString(16); };
 const docKey = solo ? (snapFragment ? `snap-${hash32(snapFragment)}` : "solo") : roomId;
 const useServer = !solo && Boolean(serverUrl());
@@ -48,11 +51,13 @@ if (solo) { $("workspace").classList.add("closed"); $("side-toggle").hidden = tr
 
 /* ── Settings and theme ─────────────────────────────────────────── */
 const settings = { fontSize: 14, wrap: false, minimap: false, ligatures: true, ...JSON.parse(store.get("settings") || "{}") };
+// Persist the editor settings for this browser.
 const saveSettings = () => store.set("settings", JSON.stringify(settings));
 let monacoRef = null;
 
 const themeSelect = $("set-theme");
 themeSelect.append(new Option("Match the system", "system"), ...THEMES.map((t) => new Option(t.label, t.id)));
+// Point the theme dropdown at whatever is stored.
 const syncThemeUi = () => { themeSelect.value = THEMES.some((t) => t.id === savedPreference()) ? savedPreference() : "system"; };
 syncThemeUi();
 themeSelect.addEventListener("change", (e) => setTheme(e.target.value));
@@ -73,6 +78,7 @@ TEAM.forEach((name, i) => {
   row.append(chip, el("b", "", name));
   $("about-crew").append(row);
 });
+// Show the About dialog with the credits.
 const openAbout = () => $("about").showModal();
 $("m-about").addEventListener("click", openAbout);
 $("about-close").addEventListener("click", () => $("about").close());
@@ -80,6 +86,7 @@ $("about").addEventListener("click", (e) => { if (e.target === $("about")) $("ab
 
 /* ── Monaco ─────────────────────────────────────────────────────── */
 const MONACO_BASE = "https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min";
+// Load Monaco from the CDN and hand back the namespace.
 function loadMonaco() {
   window.MonacoEnvironment = {
     getWorkerUrl: () => `data:text/javascript;charset=utf-8,${encodeURIComponent(
@@ -89,6 +96,7 @@ function loadMonaco() {
   return new Promise((resolve, reject) => window.require(["vs/editor/editor.main"], () => resolve(window.monaco), reject));
 }
 
+// Teach Monaco how to colour MiniLang.
 function registerMiniLang(monaco) {
   monaco.languages.register({ id: "minilang" });
   monaco.languages.setMonarchTokensProvider("minilang", {
@@ -115,6 +123,7 @@ function registerMiniLang(monaco) {
 /* ── The door: name, and a passcode when the room asks for one ──── */
 const gate = {
   node: $("gate"),
+  // Open the door dialog and resolve once the visitor submits it.
   show({ title, text, needName = true, needPass = false, error = "", action = "Enter the room", home = false }) {
     $("gate-title").textContent = title;
     $("gate-text").textContent = text;
@@ -133,15 +142,18 @@ const gate = {
       };
     });
   },
+  // Close the dialog if it is open.
   close() { if (this.node.open) this.node.close(); },
 };
 gate.node.addEventListener("cancel", (e) => e.preventDefault());
 
+// Ask for a display name once, then remember it.
 async function askName() {
   const saved = store.get("name");
   if (saved) return saved;
   const adjectives = ["Curious", "Swift", "Quiet", "Bright", "Lucky", "Careful", "Brave", "Calm"];
   const animals = ["Otter", "Fox", "Heron", "Lynx", "Panda", "Falcon", "Gecko", "Koala"];
+  // Pick a random entry, for the suggested name.
   const pick = (a) => a[Math.floor(Math.random() * a.length)];
   $("gate-name").value = `${pick(adjectives)} ${pick(animals)}`;
   const { name } = await gate.show({ title: "Join the room", text: "Pick a name. It shows next to your cursor and in chat." });
@@ -190,6 +202,7 @@ async function main() {
   let myId = null;
   let asked = false;
   const pending = new Map();
+  // The one question the whole UI asks before letting anything change.
   const canEdit = () => solo || role === "host" || role === "editor";
 
   /* Document and project ---------------------------------------- */
@@ -208,6 +221,7 @@ async function main() {
   /* Console tabs ------------------------------------------------ */
   const panes = { output: $("output"), stdin: $("stdin-pane"), preview: $("preview-pane") };
   let openTab = "output";
+  // Switch the console between output, input and preview.
   function selectTab(name) {
     openTab = name;
     for (const [key, node] of Object.entries(panes)) {
@@ -219,7 +233,9 @@ async function main() {
 
   /* Files and language ------------------------------------------ */
   let compilers = {};
+  // Which language the open file implies.
   const fileLang = (name) => (name ? languageForFile(name) : null);
+  // The line in the status bar saying where this language runs.
   const runtimeLabel = (id) => {
     if (!id) return "Plain text";
     const l = LANGUAGES[id];
@@ -229,6 +245,7 @@ async function main() {
     return info ? `${info.provider} ${info.version}` : "Built on a public service";
   };
 
+  // Rebuild the preview document, or hide the tab when no HTML file is open.
   function updatePreview() {
     const entry = previewEntry(project.all(), project.active ?? "");
     $("tab-preview").hidden = !entry;
@@ -237,6 +254,7 @@ async function main() {
   }
 
   let lastLang;
+  // Update everything that depends on which file is open.
   function refreshFile() {
     const name = project.active;
     if (!name) return;
@@ -271,6 +289,7 @@ async function main() {
     $("stdin").value = LANGUAGES[id].stdin || "";
   }
 
+  // Fill an empty project: a shared snapshot if the link had one, otherwise a starter file.
   async function seed() {
     if (project.names().length) return;
     const snap = snapFragment ? await decodeSnapshot(snapFragment) : null;
@@ -291,17 +310,20 @@ async function main() {
 
   /* File tabs --------------------------------------------------- */
   const filebar = $("filebar");
+  // Explain why a file name was refused.
   function nameProblem(name) {
     if (!validFileName(name)) toast("Letters, numbers, dots, dashes and spaces only", "ph-warning");
     else if (project.has(name)) toast(`${name} is already in this project`, "ph-warning");
     else toast(`A project holds up to ${MAX_FILES} files`, "ph-warning");
   }
+  // Inline input in the tab bar for naming and renaming.
   function askFileName(initial, done, before) {
     const input = el("input", "field file-input");
     input.value = initial;
     input.placeholder = "name.py";
     input.setAttribute("aria-label", "File name");
     let settled = false;
+    // Close the inline input, keeping or discarding what was typed.
     const finish = (commit) => {
       if (settled) return;
       settled = true;
@@ -319,11 +341,13 @@ async function main() {
     input.focus();
     input.select();
   }
+  // Add a file, if this person is allowed to.
   const newFile = () => {
     if (!canEdit()) { toast("Only editors can add files", "ph-lock-simple"); return; }
     askFileName("", (name) => { if (!project.create(name, "")) nameProblem(name); }, filebar.querySelector(".file-add"));
   };
 
+  // Draw the file tabs, with rename and delete for editors only.
   function renderTabs() {
     filebar.replaceChildren();
     const editable = canEdit();
@@ -371,19 +395,25 @@ async function main() {
   /* Output ------------------------------------------------------ */
   const out = $("output");
   let chunks = [], budget = 0, filler = null;
+  // The short run summary beside the console tabs.
   function setVerdict(text, kind = "") {
     const node = $("verdict");
     node.className = `verdict ${kind}`;
     node.replaceChildren(...(kind ? [el("i", `dot ${kind === "ok" ? "ok" : kind === "bad" ? "bad" : "warn"}`)] : []), document.createTextNode(text));
   }
+  // Put a placeholder in the output pane.
   function showFiller(html, cls) {
     out.replaceChildren();
     filler = Object.assign(el("div", cls), { innerHTML: html });
     out.append(filler);
   }
+  // Nothing has run yet.
   const showBlank = () => showFiller(`<i class="ph ph-terminal-window"></i><span>Run the project to see its output here</span><span class="quiet-note"><kbd>${MOD}</kbd> <kbd>↵</kbd></span>`, "blank");
+  // Something is running.
   const showSkeleton = () => showFiller("<i></i><i></i><i></i>", "skel");
+  // Empty the output pane and forget what it held.
   function clearOutput() { chunks = []; budget = 200_000; showBlank(); setVerdict(""); }
+  // Append one chunk of output, stopping once the pane has had enough.
   function write(text, kind = "stdout") {
     if (budget <= 0) return;
     filler?.remove();
@@ -404,6 +434,7 @@ async function main() {
   /* Running ----------------------------------------------------- */
   const runBtn = $("run");
   let running = false;
+  // Run the open file, or refresh the preview when it is a web page.
   async function run() {
     if (running || !project.active) return;
     const name = project.active;
@@ -464,6 +495,7 @@ async function main() {
   const selections = new Map();
   let following = null;
 
+  // The strip above the editor: what is going on and what to do about it.
   function showNotice(kind, stamp, text, action) {
     const node = $("notice");
     node.hidden = false;
@@ -479,6 +511,7 @@ async function main() {
     }
   }
 
+  // Work out which notice, if any, the current state deserves.
   function updateNotice() {
     if (connection === "offline") {
       return showNotice("bad", "Offline", "The room server cannot be reached. Your copy stays editable and syncs when it comes back.", { label: "Try again", run: () => net?.retry() });
@@ -501,6 +534,7 @@ async function main() {
     $("notice").hidden = true;
   }
 
+  // Apply a role everywhere: the editor, the badge, the panels, the tabs.
   function applyRole(next) {
     const before = role;
     role = next;
@@ -519,12 +553,14 @@ async function main() {
     renderTabs();
   }
 
+  // Follow a selection, switching files when it is somewhere else.
   const jumpTo = (sel) => {
     if (!sel) return;
     if (sel.file && project.has(sel.file) && project.active !== sel.file) project.open(sel.file);
     const model = editor.getModel();
     if (model) editor.revealPositionInCenterIfOutsideViewport(model.getPositionAt(Math.min(sel.head, model.getValueLength())), monaco.editor.ScrollType.Smooth);
   };
+  // Start or stop following somebody.
   function setFollow(id) {
     following = id && members.some((m) => m.id === id) ? id : null;
     $("follow").hidden = !following;
@@ -536,6 +572,7 @@ async function main() {
   }
   $("follow-stop").addEventListener("click", () => setFollow(null));
 
+  // One person in the side panel, with whatever actions we may take on them.
   function memberRow(m) {
     const mine = m.id === myId;
     const row = el("div", `member${following === m.id ? " followed" : ""}`);
@@ -548,6 +585,7 @@ async function main() {
     if (mine) who.append(el("span", "mine", "You"));
 
     const acts = el("div", "acts");
+    // Add one small icon button to a person's row.
     const act = (name, label, run, danger) => {
       const b = el("button", `btn sm icon quiet${danger ? " danger" : ""}`);
       b.type = "button";
@@ -581,6 +619,7 @@ async function main() {
     return row;
   }
 
+  // Draw pending requests, then everybody in the room, then the connection line.
   function renderPeople() {
     const box = $("crew");
     box.replaceChildren();
@@ -612,7 +651,9 @@ async function main() {
   /* Chat -------------------------------------------------------- */
   let unread = 0;
   const chatLog = $("chat-log");
+  // Empty state for the chat pane.
   const chatBlank = () => chatLog.append(Object.assign(el("div", "blank"), { innerHTML: '<i class="ph ph-chat-circle"></i><span>No messages yet</span>' }));
+  // Append a chat message and count it as unread when the pane is closed.
   function addChat(m) {
     chatLog.querySelector(".blank")?.remove();
     const row = el("div", "msg");
@@ -639,6 +680,7 @@ async function main() {
 
   /* Checkpoints ------------------------------------------------- */
   let checkpoints = [];
+  // Draw the checkpoint list, or explain why there is none.
   function renderHistory() {
     const box = $("hist");
     box.replaceChildren();
@@ -700,6 +742,7 @@ async function main() {
 
   /* Side panel -------------------------------------------------- */
   const sidePanes = { crew: "pane-crew", chat: "pane-chat", history: "pane-history", room: "pane-room" };
+  // Switch the side panel between people, chat, saves and room settings.
   function selectSide(name) {
     for (const [key, id] of Object.entries(sidePanes)) {
       $(id).hidden = key !== name;
@@ -715,6 +758,7 @@ async function main() {
 
   /* Networking -------------------------------------------------- */
   const hostKey = `host:${roomId}`;
+  // Tell the room where this cursor is, and in which file.
   const sendSelection = () => {
     const s = editor.getSelection();
     const model = editor.getModel();
@@ -839,14 +883,18 @@ async function main() {
     try { await navigator.clipboard.writeText(text); toast(ok); }
     catch { window.prompt("Copy this link", text); }
   };
+  // Copy the plain room link.
   const copyInvite = () => (solo ? toast("Open a room to invite people", "ph-info") : copy(`${location.origin}/r/${roomId}`, "Invite link copied"));
+  // Copy a link that carries the whole project inside it.
   const copySnapshot = async () => copy(`${location.origin}/play#s=${await encodeSnapshot({ files: project.all(), active: project.active })}`, "Snapshot link copied");
+  // Save the open file to disk.
   function download() {
     const name = project.active;
     const url = URL.createObjectURL(new Blob([project.text(name)], { type: "text/plain" }));
     Object.assign(document.createElement("a"), { href: url, download: name }).click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
+  // Add a file from the visitor's machine.
   const addFromDisk = () => {
     if (!canEdit()) { toast("Only editors can add files", "ph-lock-simple"); return; }
     $("file-input").click();
@@ -874,6 +922,7 @@ async function main() {
 
   /* Editor settings --------------------------------------------- */
   anchorMenu($("settings-btn"), $("settings-menu"));
+  // Push the editor settings into Monaco and store them.
   const applySettings = () => {
     editor.updateOptions({
       fontSize: settings.fontSize,
@@ -887,6 +936,7 @@ async function main() {
     $("set-ligatures").checked = settings.ligatures;
     saveSettings();
   };
+  // Step the font size within sensible bounds.
   const bumpFont = (d) => { settings.fontSize = Math.max(10, Math.min(28, settings.fontSize + d)); applySettings(); };
   $("fs-minus").addEventListener("click", (e) => { e.stopPropagation(); bumpFont(-1); });
   $("fs-plus").addEventListener("click", (e) => { e.stopPropagation(); bumpFont(1); });
@@ -897,6 +947,7 @@ async function main() {
 
   /* Layout ------------------------------------------------------ */
   const workspace = $("workspace");
+  // Show or hide the side panel, and remember the choice.
   const toggleSide = () => {
     if (solo) return;
     workspace.classList.toggle("closed");
@@ -911,10 +962,12 @@ async function main() {
   grip.addEventListener("pointerdown", (e) => {
     grip.setPointerCapture(e.pointerId);
     grip.classList.add("dragging");
+    // Drag the console taller or shorter.
     const move = (ev) => {
       const rect = main.getBoundingClientRect();
       main.style.setProperty("--console", `${Math.min(rect.height - 160, Math.max(80, rect.bottom - ev.clientY))}px`);
     };
+    // Finish the drag and remember the height.
     const up = () => {
       grip.classList.remove("dragging");
       grip.removeEventListener("pointermove", move);
@@ -928,6 +981,7 @@ async function main() {
 
   /* Command palette --------------------------------------------- */
   const palette = createPalette($("palette"));
+  // Every language, as palette entries that rename the open file.
   const languageItems = () => GROUPS.flatMap((g) => LANGUAGE_IDS.filter((id) => LANGUAGES[id].group === g).map((id) => ({
     title: LANGUAGES[id].label,
     group: g,
@@ -936,7 +990,9 @@ async function main() {
     hint: id === fileLang(project.active) ? "current" : LANGUAGES[id].runtime === "remote" ? "remote" : "local",
     run: () => setLanguage(id),
   })));
+  // Open the palette filtered to languages.
   const openLanguages = () => palette.open(languageItems, `Set the language of ${project.active ?? "this file"}`);
+  // Everything the palette can do, grouped.
   const commandItems = () => [
     { title: "Run the project", group: "Do", icon: "ph-play", hint: `${MOD} ↵`, run },
     { title: "New file", group: "Do", icon: "ph-file-plus", run: newFile },
@@ -962,6 +1018,7 @@ async function main() {
     ...project.names().map((n) => ({ title: n, group: "Open a file", icon: "ph-file-code", hint: n === project.active ? "open" : "", run: () => project.open(n) })),
     ...languageItems().map((i) => ({ ...i, group: "Languages" })),
   ];
+  // Open the palette on the full command list.
   const openCommands = () => palette.open(commandItems);
   $("palette-btn").addEventListener("click", openCommands);
   $("lang-btn").addEventListener("click", openLanguages);

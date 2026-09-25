@@ -581,3 +581,26 @@ dialog[open] { animation: fadein 0.24s var(--ease); }
   .demo-foot .controls { justify-content: flex-start; }
   .demo-foot .note { min-height: 0; }
 }
+
+/* ── Polish pass: small screens ───────────────────────────────── */
+.show-md, .show-xs { display: none !important; }
+@media (max-width: 1020px) { .show-md { display: inline-flex !important; } }
+@media (max-width: 620px) {
+  .hide-xs { display: none !important; }
+  .show-xs { display: inline !important; }
+}
+
+/* Tabs are touch targets, so give them a finger-sized hit area. */
+.demo-tab, .mini-tabs button { min-height: 38px; }
+
+/* The room's top bar never squashes its controls; it drops the least useful ones instead. */
+.top > * { flex: none; }
+@media (max-width: 620px) {
+  .top { gap: 6px; }
+  .top #theme-btn { display: none; }
+  .top #settings-btn { display: inline-flex; }
+  /* The file tab already names the language, so the picker shrinks to its icon. */
+  .lang-btn #lang-label { display: none; }
+  .lang-btn { padding: 0 10px; }
+  .main { --console: 190px; }
+}

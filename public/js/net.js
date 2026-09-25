@@ -6,7 +6,9 @@ import { io } from "https://cdn.jsdelivr.net/npm/socket.io-client@4.8.1/dist/soc
 export { Y };
 const REMOTE = "remote";
 
+// Bytes to base64, the shape updates travel in.
 const toB64 = (u8) => { let s = ""; for (const b of u8) s += String.fromCharCode(b); return btoa(s); };
+// Base64 back to bytes.
 const fromB64 = (b64) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
 // Updates cross the wire as base64 strings (see server/index.js).
 
@@ -35,6 +37,7 @@ export function persist(doc, key) {
   });
 }
 
+// A stable id for this browser, used to keep removed people out.
 export function clientId() {
   try {
     let id = localStorage.getItem("codesync:clientId");
@@ -54,7 +57,9 @@ export function connectRoom({ url, roomId, doc, getIdentity, handlers }) {
   let role = null;
   let joined = false;
 
+  // Only the host and editors may send document updates.
   const canEdit = () => role === "host" || role === "editor";
+  // Emit an event and wait for the server's answer, with a timeout.
   const call = (event, payload) => new Promise((resolve) => {
     if (!socket.connected) return resolve({ ok: false, error: "offline" });
     socket.timeout(8000).emit(event, payload, (err, res) => resolve(err ? { ok: false, error: "timeout" } : res));
@@ -65,6 +70,7 @@ export function connectRoom({ url, roomId, doc, getIdentity, handlers }) {
     if (origin !== REMOTE && joined && canEdit()) socket.emit("doc:update", toB64(update));
   });
 
+  // Announce ourselves to the room and take whatever state the server hands back.
   function join(extra = {}) {
     const identity = getIdentity();
     socket.emit("join", { roomId, clientId: clientId(), ...identity, ...extra }, (res) => {

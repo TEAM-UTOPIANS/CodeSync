@@ -10,6 +10,7 @@ const CREW = [
 const KEYWORDS = /^(from|import|def|return|print|if|else|for|in|not|None|True|False)$/;
 const FACE = '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="6" cy="7" r="1.4" fill="currentColor"/><circle cx="11" cy="7" r="1.4" fill="currentColor"/><path d="M6 10.5c1.2.9 2.6.9 3.8 0" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linecap="round"/></svg>';
 
+// The sample room: it plays a scene, then lets the visitor drive.
 export function createDemo({ root, tabs, code, crew, note, controls, state }) {
   const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
   const people = CREW.map((p) => ({ ...p }));
@@ -20,15 +21,19 @@ export function createDemo({ root, tabs, code, crew, note, controls, state }) {
   let generation = 0;
   let auto = true;
 
+  // Small DOM helper: tag, class, text.
   const el = (tag, cls, text) => {
     const n = document.createElement(tag);
     if (cls) n.className = cls;
     if (text !== undefined) n.textContent = text;
     return n;
   };
+  // Look somebody up in the sample crew.
   const person = (name) => people.find((p) => p.name === name);
+  // Wait, so the scene can be written as plain steps.
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+  // Colour one line of sample Python: comments, strings, keywords.
   function paintLine(line) {
     const out = el("span", "ln");
     if (!line) return out;
@@ -44,6 +49,7 @@ export function createDemo({ root, tabs, code, crew, note, controls, state }) {
     return out;
   }
 
+  // Redraw the whole card from the current state.
   function render() {
     tabs.replaceChildren();
     for (const name of Object.keys(files)) {
@@ -87,6 +93,7 @@ export function createDemo({ root, tabs, code, crew, note, controls, state }) {
     renderControls();
   }
 
+  // The two buttons under the card, which change with Swarit's role.
   function renderControls() {
     controls.replaceChildren();
     const swarit = person("Swarit");
@@ -108,12 +115,15 @@ export function createDemo({ root, tabs, code, crew, note, controls, state }) {
     controls.append(flip, tryType);
   }
 
+  // Write the line of commentary under the card.
   const say = (text) => { note.textContent = text; };
+  // Set the little status sticker in the card's header.
   function setState(label, kind) {
     state.textContent = label;
     state.className = `stamp ${kind}`;
   }
 
+  // Somebody tries to type: accepted when they hold a pen, bounced when they do not.
   async function attempt(p) {
     if (p.role === "viewer") {
       blockedBy = p.name;
@@ -133,6 +143,7 @@ export function createDemo({ root, tabs, code, crew, note, controls, state }) {
     render();
   }
 
+  // Type text into a file, one character at a time, as a named person.
   async function typeInto(file, text, p, speed = 32) {
     const mine = ++generation;
     active = file;
@@ -148,8 +159,10 @@ export function createDemo({ root, tabs, code, crew, note, controls, state }) {
     return mine === generation;
   }
 
+  // The visitor took over, so cancel whatever the scene was doing.
   function stopAuto() { auto = false; generation += 1; }
 
+  // Back to an empty project with Swarit watching.
   function reset() {
     files["util.py"] = [""];
     files["main.py"] = [""];
@@ -159,8 +172,10 @@ export function createDemo({ root, tabs, code, crew, note, controls, state }) {
     person("Swarit").role = "viewer";
   }
 
+  // The scene, start to finish.
   async function play() {
     const mine = ++generation;
+    // Stop immediately if the visitor interrupted or the card scrolled away.
     const alive = () => auto && mine === generation;
 
     reset();
@@ -193,6 +208,7 @@ export function createDemo({ root, tabs, code, crew, note, controls, state }) {
     auto = false;
   }
 
+  // Reduced motion: show where the scene would have ended, with no typing.
   function showFinalState() {
     files["util.py"] = ["def greet(name):", '    return "hi " + name'];
     files["main.py"] = ["from util import greet", "", 'print(greet("Nitin"))'];

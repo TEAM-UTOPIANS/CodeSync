@@ -6,10 +6,14 @@ import { Y } from "./net.js";
 
 const REMOTE = "remote";
 const PALETTE = ["#f28b82", "#7bc47f", "#7fb7f5", "#f6c453", "#c3a6f2", "#f2a1cf", "#f4a261", "#9bd16b"];
+// Give every peer a stable colour from their id.
 const colorFor = (id) => { let h = 0; for (const c of id) h = (h * 31 + c.charCodeAt(0)) >>> 0; return PALETTE[h % PALETTE.length]; };
+// Trim a name to something displayable.
 const cleanName = (s) => String(s ?? "").trim().slice(0, 20) || "Guest";
+// Anything that needs a trusted server simply is not available here.
 const unsupported = async () => ({ ok: false, error: "p2p" });
 
+// Join a room without a server: peers find each other and sync directly.
 export function connectPeers({ roomId, doc, getIdentity, handlers }) {
   const room = joinRoom({ appId: "codesync-collab-v2" }, roomId);
   const syncAction = room.makeAction("sync");
@@ -18,8 +22,10 @@ export function connectPeers({ roomId, doc, getIdentity, handlers }) {
   const chatAction = room.makeAction("chat");
   const runAction = room.makeAction("run");
 
+  // How this browser describes itself to peers.
   const self = () => ({ id: selfId, name: cleanName(getIdentity().name), color: colorFor(selfId), role: "editor" });
   const peers = new Map();
+  // Rebuild the people list from the peers we know about.
   const presence = () => handlers.onPresence?.([self(), ...peers.values()]);
   let lastSel = null;
 
@@ -51,8 +57,10 @@ export function connectPeers({ roomId, doc, getIdentity, handlers }) {
 
   return {
     p2p: true,
+    // Nothing to join: the connection is the swarm itself.
     join() {},
     close: () => room.leave(),
+    // Trystero reconnects on its own.
     retry() {},
     get connected() { return true; },
     sendAwareness: (sel) => { lastSel = sel; if (peers.size) awareAction.send(sel); },

@@ -49,7 +49,9 @@ export const REMOTE_IDS = Object.keys(REMOTE);
 
 /* ── helpers ─────────────────────────────────────────────────────── */
 
+// Pull the numbers out of a compiler name so versions can be compared.
 const versionKey = (name) => (String(name).match(/\d+/g) || []).map(Number);
+// Sort newest first, part by numeric part.
 const compareVersionsDesc = (a, b) => {
   const x = versionKey(a), y = versionKey(b);
   for (let i = 0; i < Math.max(x.length, y.length); i++) {
@@ -60,8 +62,10 @@ const compareVersionsDesc = (a, b) => {
 };
 
 const cache = new Map();
+// Drop the cached compiler lists. The tests call this between cases.
 export const clearProviderCache = () => cache.clear();
 
+// Remember a provider's compiler list for an hour.
 async function cached(key, load) {
   const hit = cache.get(key);
   if (hit && Date.now() - hit.at < LIST_TTL_MS) return hit.value;
@@ -70,6 +74,7 @@ async function cached(key, load) {
   return value;
 }
 
+// Fetch JSON and turn any non-2xx answer into a readable error.
 async function getJson(url, init, { fetchImpl, signal }) {
   const res = await fetchImpl(url, { ...init, signal });
   if (!res.ok) throw new Error(`${new URL(url).hostname} responded ${res.status}`);
@@ -77,11 +82,14 @@ async function getJson(url, init, { fetchImpl, signal }) {
 }
 
 const ANSI = new RegExp(String.fromCharCode(27) + "\\[[0-9;?]*[A-Za-z]", "g"); // compilers colour their diagnostics
+// Compilers colour their diagnostics; the editor wants the plain text.
 const plain = (s) => String(s ?? "").replace(ANSI, "");
+// Flatten Compiler Explorer's line objects into one string.
 const lines = (arr) => plain((arr || []).map((l) => l.text).join("\n"));
 
 /* ── Wandbox ─────────────────────────────────────────────────────── */
 
+// Wandbox compilers for this language, best match first.
 async function wandboxCompilers(spec, ctx) {
   const list = await cached("wandbox", () => getJson(`${WANDBOX}/list.json`, {}, ctx));
   const names = list.filter((c) => c.language === spec.language).map((c) => c.name);
@@ -95,9 +103,11 @@ async function wandboxCompilers(spec, ctx) {
 // Some Wandbox toolchains are broken on the server side (missing libraries, permissions).
 // Those failures are not the user's fault, so the next candidate compiler is tried instead.
 const BROKEN_TOOLCHAIN = /Permission denied|command not found|No such file or directory|error while loading shared libraries|File size limit exceeded|catatonit/i;
+// Tell a broken toolchain apart from an honest compile error.
 const looksBroken = (r) => r.phase === "compile" && BROKEN_TOOLCHAIN.test(r.compileOutput)
   || [126, 127, 153].includes(r.exitCode) && BROKEN_TOOLCHAIN.test(r.stderr + r.compileOutput);
 
+// One build and run on a named Wandbox compiler.
 async function runWandboxOnce(spec, compiler, code, stdin, ctx) {
   const t0 = Date.now();
   const body = { compiler, code, stdin, save: false };
@@ -127,6 +137,7 @@ async function runWandboxOnce(spec, compiler, code, stdin, ctx) {
   };
 }
 
+// Try the preferred compilers in turn, stepping over broken toolchains.
 async function runWandbox(spec, code, stdin, ctx) {
   const candidates = (await wandboxCompilers(spec, ctx)).slice(0, 4);
   let last;
@@ -139,6 +150,7 @@ async function runWandbox(spec, code, stdin, ctx) {
 
 /* ── Compiler Explorer ───────────────────────────────────────────── */
 
+// The newest Compiler Explorer compiler matching this language.
 async function godboltCompiler(spec, ctx) {
   const list = await cached(`godbolt:${spec.lang}`, () =>
     getJson(`${GODBOLT}/compilers/${encodeURIComponent(spec.lang)}?fields=id,name,semver`, { headers: { Accept: "application/json" } }, ctx));
@@ -148,6 +160,7 @@ async function godboltCompiler(spec, ctx) {
   return matches.sort((a, b) => compareVersionsDesc(a.semver || a.name || "", b.semver || b.name || ""))[0];
 }
 
+// Build and run on Compiler Explorer, then normalise the answer.
 async function runGodbolt(spec, code, stdin, ctx) {
   const compiler = await godboltCompiler(spec, ctx);
   const t0 = Date.now();

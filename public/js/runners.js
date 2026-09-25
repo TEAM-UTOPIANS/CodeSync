@@ -16,6 +16,7 @@ const REMOTE_TIMEOUT_MS = 65_000;
 let pyWorker = null;
 let pyWarm = false;
 
+// Run code in a worker and stream its output, killing the worker if it overruns.
 function runInWorker(lang, code, stdin, { write, status }, files) {
   return new Promise((resolve) => {
     const isPy = lang === "python";
@@ -26,10 +27,12 @@ function runInWorker(lang, code, stdin, { write, status }, files) {
     }
     const limit = isPy && !pyWarm ? COLD_START_MS : TIMEOUT_MS[lang];
 
+    // Terminate the worker and forget it, so the next run starts clean.
     const kill = () => {
       worker.terminate();
       if (isPy) { pyWorker = null; pyWarm = false; }
     };
+    // Stop listening and cancel the timeout.
     const cleanup = () => { clearTimeout(timer); worker.onmessage = worker.onerror = null; };
     const timer = setTimeout(() => {
       cleanup();
@@ -60,6 +63,7 @@ function runInWorker(lang, code, stdin, { write, status }, files) {
 
 class Rejected extends Error {}
 
+// Ask our function to build the project, falling back to calling the services directly.
 async function callRemote(id, code, stdin, files) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), REMOTE_TIMEOUT_MS);
@@ -89,6 +93,7 @@ const DIAGNOSTIC = [
   /-->\s*\S+:(\d+):(\d+)/,
   /\.\w+:(\d+):(\d+):\s*([^\n]*)/,
 ];
+// Find the first file, line and column in a compiler's message.
 function diagnosticFrom(text) {
   for (const re of DIAGNOSTIC) {
     const m = re.exec(text);
@@ -97,6 +102,7 @@ function diagnosticFrom(text) {
   return null;
 }
 
+// Build and run on a compiler service, then report it like any other run.
 async function runRemote(id, code, stdin, { write, status }, files) {
   status?.(`Building and running ${LANGUAGES[id].label}…`);
   let r;

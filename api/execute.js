@@ -11,6 +11,7 @@ const TIMEOUT_MS = 55_000;
 // Best-effort token bucket. Serverless instances do not share memory, so this only
 // blunts bursts from a single client. The upstream services enforce their own limits.
 const buckets = new Map();
+// A token bucket per client. Serverless instances do not share memory, so this only blunts bursts.
 function allow(ip, { rate = 0.5, burst = 6 } = {}) {
   const now = Date.now();
   const b = buckets.get(ip) ?? { tokens: burst, at: now };
@@ -23,6 +24,7 @@ function allow(ip, { rate = 0.5, burst = 6 } = {}) {
   return true;
 }
 
+// Keep a response small enough to be worth sending.
 const clip = (s) => (s.length > MAX_OUTPUT ? s.slice(0, MAX_OUTPUT) + "\n... output truncated" : s);
 
 export default async function handler(req, res) {
@@ -64,4 +66,5 @@ export default async function handler(req, res) {
   }
 }
 
+// Parse a JSON body without throwing on rubbish.
 function safeParse(s) { try { return JSON.parse(s); } catch { return null; } }

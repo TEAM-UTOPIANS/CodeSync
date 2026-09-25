@@ -16,6 +16,21 @@ Built by **Mayank Karki**, **Nitin Kandpal** and **Swarit Kumar** · Team Utopia
 
 ---
 
+**Contents** ·
+[What it is](#what-codesync-is) ·
+[Features](#features) ·
+[Roles](#the-rules-in-one-table) ·
+[Languages](#languages) ·
+[Architecture](#how-it-fits-together) ·
+[Run it](#run-it-locally) ·
+[Deploy it](#deploy-it-free) ·
+[Layout](#project-layout) ·
+[MiniLang](#minilang) ·
+[Testing](#testing) ·
+[Limits](#known-limits) ·
+[**Interview notes**](#talking-about-this-project) ·
+[Credits](#credits)
+
 ## What CodeSync is
 
 Most "share your code" tools give the same pen to whoever opens the link. CodeSync does not. A room
@@ -225,9 +240,207 @@ stop after 50,000 steps so a runaway loop cannot hang the tab.
   copies. Scaling past one instance needs the Socket.IO Redis adapter.
 - The host role is tied to a browser. Clearing site data means losing the host role for that room.
 - Peer to peer mode has no TURN relay, so strict corporate networks may not connect.
-- Public compiler services can be slow, rate limited or briefly broken. Seven languages (Kotlin,
-  Dart, Crystal, Swift, OCaml, Fortran, COBOL) have only one provider and no fallback.
+- Public compiler services can be slow, rate limited or briefly broken. Only 11 of the 29 remote
+  languages are served by both providers; 11 are Wandbox only and 7 (Kotlin, Crystal, Swift, Dart,
+  OCaml, Fortran, COBOL) are Compiler Explorer only, so those have no fallback.
 - A room holds up to 30 people and 12 files.
+
+## Talking about this project
+
+Everything below is for explaining CodeSync out loud: in an interview, a viva, or a demo. It is the
+same system described above, just from the "why" side.
+
+### The pitch
+
+**In one line.** CodeSync is a browser based collaborative code editor where the host controls who
+can type, and the server enforces it.
+
+**In thirty seconds.** Most shared editors give everyone the same pen, which is fine for pairing and
+wrong for a classroom or an interview. CodeSync has three roles. The document is a CRDT, so
+simultaneous edits merge without a lock, and a small Socket.IO server both relays those edits and
+decides whose edits count. Around that we added multi-file projects, 33 languages, checkpoints and a
+live preview. The whole stack runs on free tiers with no database.
+
+**In two minutes.** Add the how. Each room holds a Yjs document. A file is a `Y.Text` inside a
+`Y.Map`, plus a `Y.Array` that keeps the tab order, and each file is bound to its own Monaco model.
+When you type, Monaco's change event is turned into Yjs operations; Yjs produces a binary update;
+the client sends it to the server; the server checks the sender's role, applies it to its own copy of
+the document, and fans it out to the rest of the room. A viewer's update is dropped at that check, so
+tampering with the page changes nothing for anybody else. Running code takes two paths: JavaScript,
+Python and MiniLang execute inside the browser in a worker, while compiled languages go through a
+serverless function to public compiler services, with a second service as fallback.
+
+### Numbers
+
+| | |
+| --- | --- |
+| JavaScript across the app, server, functions and tests | about 4,600 lines |
+| CSS and HTML | about 1,100 lines |
+| Languages | 33 (4 local, 29 remote) |
+| Remote languages with a fallback provider | 11 of 29 |
+| Automated tests | 37 (25 app, 12 room server) |
+| Runtime dependencies in the frontend | 0 (everything is loaded from a CDN as an ES module) |
+| Databases | 0 |
+
+### Decisions and trade-offs
+
+| Decision | Why | What it costs |
+| --- | --- | --- |
+| CRDT (Yjs) instead of operational transform | Merges without a central sequencer, survives reconnects, and the library is battle tested | Bigger payloads than plain OT, and document history grows until the room is dropped |
+| Socket.IO instead of raw WebSocket | Automatic reconnection, acknowledgements, rooms and a polling fallback for hostile networks | A protocol layer we do not control, and a slightly larger client |
+| Roles enforced on the server | A permission that only exists in the UI is decoration; `canEdit()` guards every write | The peer to peer fallback cannot have roles at all |
+| Host identity as a token in `localStorage` | No accounts, and the invite link stays safe to paste anywhere | Clearing site data loses the host role for that room |
+| Rooms in memory, no database | Nothing to pay for, nothing to leak, and a room is a session rather than a document | A restart clears rooms, and one instance cannot share rooms with another |
+| Execution split between browser and remote | Python and JavaScript feel instant and stay private; compiled languages need a real toolchain | Two code paths to maintain, and remote languages depend on services we do not own |
+| Public compiler services instead of Judge0 or a sandbox we run | Free, no API key, no container budget | Rate limits, occasional outages, and code leaving the browser for those languages |
+| Base64 on the wire for document updates | One representation that behaves the same in Node and the browser | Roughly a third more bytes than raw binary |
+| Monaco instead of CodeMirror | The editor people already know from VS Code, with a language mode for everything we support | A large download, so it comes from a CDN and is the heaviest asset on the page |
+| No build step for the frontend | `git clone` and open it; nothing between the source and the page | No bundling, tree shaking or type checking |
+
+### How the document actually syncs
+
+1. You type. Monaco fires a content change with offsets against the pre-change document.
+2. `binding.js` applies those changes to the `Y.Text` **from the end backwards**, so earlier offsets
+   stay valid, inside one transaction tagged with a local origin.
+3. Yjs emits a binary update. `net.js` sees the origin is not `remote`, so it is ours, and sends it.
+4. The server checks `canEdit(socketId)`. If the sender is a viewer, the update is dropped and that
+   socket gets a `read-only` notice. Otherwise the server applies it and broadcasts it.
+5. Other clients apply the update with the origin `remote`, which stops it being echoed back, and the
+   binding turns the Yjs delta into `model.applyEdits` in Monaco.
+
+The same loop carries cursors, except those go out as volatile events, since a cursor that arrives
+late is worth nothing.
+
+### How permissions hold up
+
+- Every write path on the server (`doc:update`, `checkpoint:save`, `run:result`) asks `canEdit()`.
+- The client also sets `readOnly` on Monaco, and the binding restores the shared text if the model is
+  changed some other way. That is politeness, not security: the server is what makes it true.
+- The host token never travels in a link. The browser generates 28 random characters, the server
+  stores `sha256(token)`, and a join is a host join only if the hash matches.
+- Handing the host role over generates a new token, gives it to the new host, and invalidates the old
+  one by replacing the stored hash.
+- Removing somebody bans their `clientId` for the life of the room, so a refresh does not let them
+  back in.
+
+### Three walkthroughs
+
+**Somebody opens an invite link.** The page asks for a name, connects, and emits `join` with the room
+id, the browser's `clientId` and a host token if it has one. The server admits or refuses (locked,
+passcode, removed, full), assigns a role, and replies with the document, the people, the settings,
+the chat history and the checkpoint list. The client applies the document, and if it turns out to
+hold newer state than the server it pushes the difference straight back.
+
+**Somebody types one character.** Covered above: Monaco change, Yjs update, role check, broadcast.
+The round trip is one relay hop, with no locking and no conflict resolution to wait for.
+
+**Somebody presses Run.** The client collects every file in the project. If the language runs
+locally, the code goes to a Web Worker, output streams back as messages, and a timeout kills the
+worker if it overruns. If it is remote, the client posts to `/api/execute`, which validates sizes,
+applies a per client rate limit, then asks Compiler Explorer (fast) or Wandbox (writes sibling files,
+so it goes first when the project has several). The result is normalised, the first diagnostic is
+turned into a Monaco marker, and editors also broadcast the output so the whole room sees it.
+
+### Security
+
+- No account means nothing to breach, and we store nothing about anybody.
+- The invite link is the credential, which is why the passcode and the lock exist.
+- The server never trusts the client for a role, the room id is pattern matched before use, names
+  are stripped of control characters, and updates over 256 KB are rejected.
+- Every socket has a token bucket (60 burst, 30 per second), and the execute function has its own.
+- The preview iframe is sandboxed to scripts only, so a page in the preview cannot reach the room.
+- Cursor names and chat are written with `textContent`, never `innerHTML`, so a name cannot inject
+  markup.
+- Honest limit: remote languages send code to a third party, which is stated on the site.
+
+### Performance
+
+- Monaco is loaded from a CDN and shared by every visitor's cache; the rest of the frontend is a
+  handful of small ES modules with no bundler.
+- Cursor updates are volatile and debounced; document updates are deltas rather than whole files.
+- The local copy in `localStorage` is written on a 400 ms trailing timer rather than on each keypress.
+- Pyodide loads once per tab and is reused, so only the first Python run pays for it.
+- Output is capped at 200 KB per run, so a runaway loop cannot lock the tab.
+- Scroll animation runs on the compositor through `animation-timeline`, with an IntersectionObserver
+  fallback rather than a scroll listener.
+
+### Testing
+
+- **Unit.** MiniLang gets its own suite covering every phase: lexing, parsing, checking, runtime
+  errors, the step limit and deep nesting.
+- **Contract.** The provider layer is tested against a fake `fetch`: newest compiler selection,
+  failover between services, ANSI stripping and broken toolchain detection. One test fails if the
+  language catalog and the provider map ever disagree.
+- **Integration.** The room server tests spin up a real Socket.IO server and connect real clients,
+  then assert the rules: a viewer's update is refused, a promoted viewer's update is accepted, only
+  the host may change roles, kick bans a returning browser, the passcode and lock gate joins, host
+  transfer moves control, and checkpoints restore every file.
+- **End to end by hand.** Two browser profiles in one room, for the flows that are about feel rather
+  than assertions.
+- `npm run verify:languages` is a live check: it sends all 33 starter programs to the real services
+  and reports what actually built.
+
+### Problems worth talking about
+
+- **Monaco and Yjs disagree about offsets.** Monaco reports changes against the document before the
+  change; applying them in order corrupts later offsets. Sorting the changes and applying them from
+  the end fixes it.
+- **Echo loops.** Applying a remote update fires a change event, which would send it straight back.
+  Tagging every transaction with an origin and ignoring `remote` breaks the loop.
+- **Binary over Socket.IO.** Binary attachments behave differently in Node and the browser, which
+  showed up as `Unexpected end of array` when decoding. Base64 everywhere was the simplest honest
+  fix for documents this small.
+- **Broken public toolchains.** Some Wandbox compilers fail for reasons that are not the user's code:
+  a missing shared library, a permission error. Those signatures are detected and the next compiler
+  is tried, so the user sees a real error or a real result, never a server's bad day.
+- **A viewer who edits the DOM.** The editor is set read only, but that is trivially bypassed. The
+  test that matters sends a document update straight down the socket as a viewer and asserts the
+  server refuses it and the room's copy is unchanged.
+- **Two people seeding an empty room.** If everyone creates a starter file, you get duplicates. Only
+  the host seeds, and in peer to peer mode a client waits to see whether anybody else is there first.
+- **`cleanUrls` on Vercel.** It quietly broke the `/r/:room` rewrite and every room 404ed in
+  production while working locally. Worth mentioning as a reminder that hosting config is part of the
+  system.
+
+### If there were another week
+
+- Redis adapter plus a shared store, so the room server can run more than one instance and rooms
+  survive a restart.
+- A TURN server, so peer to peer mode works on locked down networks.
+- Voice chat over WebRTC, reusing the same peer connections.
+- An interview mode: fixed language, hidden test cases, a timer, and a transcript at the end.
+- Replay a session from the Yjs update history.
+- Self hosted execution in Firecracker or gVisor, to stop depending on public services.
+
+### Questions that tend to come up
+
+**Why a CRDT rather than a lock or operational transform?** A lock turns pairing into turn taking.
+OT needs a central server that orders every operation and a correct transform function per operation
+type. A CRDT merges by construction, which also means the peer to peer mode works with no server at
+all.
+
+**What happens if two people edit the same line at the same moment?** Both edits survive. Yjs orders
+them deterministically by client id and clock, so every client converges on the same text without
+asking anybody.
+
+**How do you stop a viewer from just editing the page?** You cannot stop them changing their own
+screen, and that is fine. The document lives on the server, and the server refuses their update.
+There is a test for exactly that.
+
+**Why not Judge0 or your own container?** Both need money or an API key, and the project had to stay
+free. Public compiler services cost nothing, and the provider layer hides the fact that there are two
+of them.
+
+**What breaks first under load?** The single room server instance, since every room lives in its
+memory. The fix is the Redis adapter plus a shared room store. After that, the compiler services'
+rate limits.
+
+**Why is there no build step?** The frontend is ES modules the browser already understands. It keeps
+the repository readable, makes the deploy trivial, and nothing in the project needed a compiler.
+
+**What is the one thing you would change?** Room persistence. Everything else degrades gracefully,
+but a server restart still drops rooms, and clients only recover what their own browser happened to
+keep.
 
 ## Credits
 

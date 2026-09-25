@@ -6,17 +6,20 @@ import { monacoForFile, validFileName } from "./languages.js";
 
 export const MAX_FILES = 12;
 
+// A set of files backed by a shared map, each with its own Monaco model.
 export function createProject({ doc, monaco, editor, isEditable, onTabs, onActive, onChange }) {
   const files = doc.getMap("files");
   const order = doc.getArray("order");
   const entries = new Map(); // name -> {model, ytext, binding}
   let active = null;
 
+  // File names in tab order, with any stragglers appended.
   const names = () => {
     const ordered = order.toArray().filter((n, i, a) => files.has(n) && a.indexOf(n) === i);
     return [...ordered, ...[...files.keys()].filter((n) => !ordered.includes(n)).sort()];
   };
 
+  // Make the models match the shared map: build new ones, dispose removed ones.
   function sync() {
     for (const name of files.keys()) {
       if (entries.has(name)) continue;
@@ -36,6 +39,7 @@ export function createProject({ doc, monaco, editor, isEditable, onTabs, onActiv
     else onTabs();
   }
 
+  // Show a file in the editor.
   function open(name) {
     const entry = entries.get(name);
     if (!entry) return;
@@ -52,6 +56,7 @@ export function createProject({ doc, monaco, editor, isEditable, onTabs, onActiv
   });
   order.observe(() => onTabs());
 
+  // Can we create this name right now?
   const reserve = (name) => validFileName(name) && !files.has(name) && files.size < MAX_FILES;
 
   return {
@@ -60,6 +65,7 @@ export function createProject({ doc, monaco, editor, isEditable, onTabs, onActiv
     has: (name) => files.has(name),
     open,
     sync,
+    // Add a file and open it. Returns false when the name is taken or invalid.
     create(name, content = "") {
       if (!reserve(name)) return false;
       doc.transact(() => { files.set(name, new Y.Text(content)); order.push([name]); });
@@ -67,6 +73,7 @@ export function createProject({ doc, monaco, editor, isEditable, onTabs, onActiv
       open(name);
       return true;
     },
+    // Delete a file, unless it is the last one standing.
     remove(name) {
       if (files.size <= 1 || !files.has(name)) return false;
       doc.transact(() => {
@@ -77,6 +84,7 @@ export function createProject({ doc, monaco, editor, isEditable, onTabs, onActiv
       sync();
       return true;
     },
+    // Rename a file, keeping its place in the tab order.
     rename(from, to) {
       if (from === to || !files.has(from) || !validFileName(to) || files.has(to)) return false;
       const content = files.get(from).toString();
@@ -92,6 +100,7 @@ export function createProject({ doc, monaco, editor, isEditable, onTabs, onActiv
       if (wasActive) open(to);
       return true;
     },
+    // Replace a file's contents through the shared document.
     setText(name, text) { entries.get(name)?.binding.setText(text); },
     text: (name) => files.get(name)?.toString() ?? "",
     all: () => names().map((name) => ({ name, code: files.get(name)?.toString() ?? "" })),

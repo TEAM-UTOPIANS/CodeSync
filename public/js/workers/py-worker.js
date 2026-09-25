@@ -2,6 +2,7 @@
 // the interpreter is reused across runs. The host terminates this worker on timeout.
 importScripts("https://cdn.jsdelivr.net/pyodide/v0.29.0/full/pyodide.js");
 
+// Send one chunk of output back to the page.
 const post = (type, text) => self.postMessage({ type, text });
 let pyodide = null;
 

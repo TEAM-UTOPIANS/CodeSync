@@ -1,16 +1,18 @@
 import { LANGUAGES, LANGUAGE_IDS, GROUPS } from "./languages.js";
 import { langTile } from "./ui.js";
-import { mountThemePicker } from "./themes.js";
+import { THEMES, mountThemePicker, setTheme, currentTheme } from "./themes.js";
 import { createDemo } from "./demo.js";
 
 const $ = (id) => document.getElementById(id);
 const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+// Small DOM helper: tag, class, text.
 const el = (tag, cls, text) => {
   const n = document.createElement(tag);
   if (cls) n.className = cls;
   if (text !== undefined) n.textContent = text;
   return n;
 };
+// A Phosphor icon element.
 const icon = (name) => el("i", `ph ${name}`);
 
 // Browsers that can drive animations from the scroll position do the work in CSS.
@@ -20,6 +22,11 @@ if (scrollDriven) document.documentElement.classList.add("scrolldriven");
 
 document.querySelectorAll("[data-count]").forEach((n) => (n.textContent = String(LANGUAGE_IDS.length)));
 mountThemePicker($("themes"));
+// Narrow screens get one button that steps through the themes instead of the swatch row.
+$("theme-cycle").addEventListener("click", () => {
+  const ids = THEMES.map((t) => t.id);
+  setTheme(ids[(ids.indexOf(currentTheme()) + 1) % ids.length]);
+});
 
 /* ── Sample room in the hero ────────────────────────────────────── */
 createDemo({
@@ -63,6 +70,7 @@ const EXAMPLE = {
   "shapes.py": "def area(w, h):\n    return w * h",
 };
 const KEYWORDS = /^(from|import|def|return|print)$/;
+// Colour the example project the same way the hero card does.
 function highlight(source) {
   const out = document.createDocumentFragment();
   for (const line of source.split("\n")) {
@@ -78,6 +86,7 @@ function highlight(source) {
   }
   return out;
 }
+// Switch the example between its two files.
 function showExample(name) {
   $("mini-tabs").querySelectorAll("button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.name === name)));
   $("mini-code").replaceChildren(highlight(EXAMPLE[name]));
@@ -105,6 +114,7 @@ const cards = LANGUAGE_IDS.map((id) => {
   return card;
 });
 let filter = "All";
+// Show only the languages in the chosen group.
 const applyFilter = () => cards.forEach((c) => (c.hidden = filter !== "All" && c.dataset.group !== filter));
 for (const name of ["All", ...GROUPS]) {
   const b = el("button", "", name === "In your browser" ? "In the browser" : name);
@@ -173,6 +183,7 @@ if (!scrollDriven) {
   // Scroll progress without a scroll listener: a tiny rAF loop only while the page is moving.
   const bar = document.querySelector(".scroll-bar i");
   let ticking = false;
+  // Mark the swatch that matches the active theme.
   const paint = () => {
     const max = document.documentElement.scrollHeight - innerHeight;
     bar.style.width = `${max > 0 ? Math.min(100, (scrollY / max) * 100) : 0}%`;
@@ -191,6 +202,7 @@ new IntersectionObserver(([e]) => $("nav").classList.toggle("stuck", !e.isInters
 const scenes = [...document.querySelectorAll(".how-scene")];
 const steps = [...document.querySelectorAll(".how-step")];
 let activeStep = -1;
+// Light up one step and bring its matching card to the front.
 function showStep(i) {
   if (i === activeStep) return;
   activeStep = i;
@@ -206,6 +218,7 @@ steps.forEach((s) => stepWatcher.observe(s));
 
 /* ── Start and join ─────────────────────────────────────────────── */
 const rand = (n, alphabet) => Array.from(crypto.getRandomValues(new Uint8Array(n)), (b) => alphabet[b % alphabet.length]).join("");
+// Mint a room id and a host token, then go there.
 function startRoom() {
   const s = rand(12, "abcdefghjkmnpqrstuvwxyz23456789");
   const id = `${s.slice(0, 4)}-${s.slice(4, 8)}-${s.slice(8)}`;

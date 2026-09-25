@@ -14,18 +14,22 @@ const LEGACY = {
   filament: "midnight", loco: "midnight",
 };
 const KEY = "codesync:theme";
+// Is this one of the themes we ship?
 const isKnown = (id) => THEMES.some((t) => t.id === id);
 
+// The stored choice: a theme id, or "system" when the visitor never picked one.
 export function savedPreference() {
   try { return localStorage.getItem(KEY) || "system"; } catch { return "system"; }
 }
 
+// Turn a stored preference into a real theme id, following the system when asked.
 export function resolveTheme(pref = savedPreference()) {
   const id = LEGACY[pref] ?? pref;
   if (isKnown(id)) return id;
   return matchMedia("(prefers-color-scheme: dark)").matches ? "midnight" : "cream";
 }
 
+// Save a preference, apply it to the page, and tell the rest of the app.
 export function setTheme(pref) {
   try { localStorage.setItem(KEY, pref); } catch { /* storage unavailable */ }
   const id = resolveTheme(pref);
@@ -34,10 +38,12 @@ export function setTheme(pref) {
   return id;
 }
 
+// The theme the page is wearing right now.
 export function currentTheme() { return document.documentElement.dataset.theme || "cream"; }
 
 /** One round swatch per theme. */
 export function mountThemePicker(container) {
+  // Mark whichever swatch matches the active theme.
   const paint = () => container.querySelectorAll(".swatch").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.id === currentTheme())));
   for (const t of THEMES) {
     const b = document.createElement("button");
@@ -57,7 +63,9 @@ export function mountThemePicker(container) {
 /** Build the Monaco theme out of whatever the active theme's CSS variables say. */
 export function defineMonacoTheme(monaco) {
   const cs = getComputedStyle(document.documentElement);
+  // Read one CSS custom property off the root element.
   const v = (name) => cs.getPropertyValue(name).trim();
+  // Monaco wants colours without the leading hash.
   const hex = (c) => c.replace("#", "");
   const dark = THEMES.find((t) => t.id === currentTheme())?.dark ?? false;
   monaco.editor.defineTheme("codesync", {

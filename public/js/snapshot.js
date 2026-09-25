@@ -1,8 +1,10 @@
 // Share a snippet without a database: the code is compressed into the URL fragment,
 // so the link is self-contained and the fragment is never sent to any server.
 const toB64Url = (bytes) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+// Base64url back to bytes.
 const fromB64Url = (s) => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
 
+// Run bytes through a compression stream and collect the result.
 async function pipe(bytes, stream) {
   const out = new Response(new Blob([bytes]).stream().pipeThrough(stream));
   return new Uint8Array(await out.arrayBuffer());
@@ -14,6 +16,7 @@ export async function encodeSnapshot({ files, active }) {
   return toB64Url(await pipe(json, new CompressionStream("deflate-raw")));
 }
 
+// Read a snapshot fragment back into files. Returns null if it is damaged or not ours.
 export async function decodeSnapshot(fragment) {
   try {
     const bytes = await pipe(fromB64Url(fragment), new DecompressionStream("deflate-raw"));

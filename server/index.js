@@ -8,8 +8,10 @@ import { RoomStore, cleanRoomId } from "./rooms.js";
 // Yjs updates travel as base64 strings. Binary attachments behave differently in Node and browsers,
 // and the documents here are small, so the 33% overhead is a fair price for one simple wire format.
 const encode = (bytes) => Buffer.from(bytes).toString("base64");
+// Base64 back to bytes, with a size limit so a huge string cannot tie up the server.
 const decode = (b64) => (typeof b64 === "string" && b64.length < 400_000 ? new Uint8Array(Buffer.from(b64, "base64")) : null);
 
+// Build the HTTP server and the Socket.IO server that runs every room.
 export function createApp({ corsOrigin = process.env.CORS_ORIGIN || "*", store = new RoomStore() } = {}) {
   const http = createServer((req, res) => {
     if (req.url === "/health" || req.url === "/") {
@@ -42,9 +44,13 @@ export function createApp({ corsOrigin = process.env.CORS_ORIGIN || "*", store =
       bucket.tokens -= 1;
       return true;
     };
+    // Every room event: ignore it unless the socket has joined and is within its rate limit.
     const guard = (fn) => (...args) => { if (room && allow()) fn(...args); };
+    // Answer a client callback, when it sent one.
     const ack = (cb, payload) => { if (typeof cb === "function") cb(payload); };
+    // Tell the whole room who is in it now.
     const broadcastPresence = () => io.to(room.id).emit("presence", room.publicUsers());
+    // Send this one socket a short notice code.
     const notify = (code) => socket.emit("notice", { code });
 
     socket.on("join", (payload, cb) => {

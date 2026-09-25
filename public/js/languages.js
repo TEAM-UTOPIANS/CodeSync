@@ -5,8 +5,10 @@
 // Starter programs read one line from stdin and greet it, so every language can be tried the same way.
 
 const DEVICON = "https://cdn.jsdelivr.net/gh/devicons/devicon@v2.17.0/icons";
+// Devicon URL for a language logo, or null when we have none.
 export const iconUrl = (slug) => (slug ? `${DEVICON}/${slug}/${slug}-original.svg` : null);
 
+// Build one catalog entry, filling in the defaults every language shares.
 const L = (id, label, o) => ({ id, label, monaco: id, ext: id, icon: null, stdin: "Ada", ...o });
 
 export const LANGUAGES = {
@@ -339,14 +341,20 @@ SELECT name, year FROM languages ORDER BY year DESC;
 
 export const LANGUAGE_IDS = Object.keys(LANGUAGES);
 export const GROUPS = ["In your browser", "Compiled", "JVM and .NET", "Scripting", "Functional and data"];
+// The catalog arranged into the groups the site shows.
 export const byGroup = () => GROUPS.map((g) => [g, LANGUAGE_IDS.filter((id) => LANGUAGES[id].group === g).map((id) => LANGUAGES[id])]);
+// The file name a fresh file of this language gets.
 export const fileName = (id) => `main.${LANGUAGES[id].ext}`;
 
 /* ── Files: extension <-> language ───────────────────────────────── */
 export const EXT_TO_LANG = {};
 for (const l of Object.values(LANGUAGES)) EXT_TO_LANG[l.ext] ??= l.id;
 const PLAIN_EXT = { css: "css", json: "json", md: "markdown", txt: "plaintext", h: "c", hpp: "cpp", yml: "yaml", yaml: "yaml", csv: "plaintext" };
+// The extension of a file name, lower case, without the dot.
 export const extOf = (name) => (name.includes(".") ? name.split(".").pop().toLowerCase() : "");
+// Which language a file name implies, or null when we cannot run it.
 export const languageForFile = (name) => EXT_TO_LANG[extOf(name)] ?? null;
+// The Monaco mode for a file, falling back to plain text.
 export const monacoForFile = (name) => { const id = languageForFile(name); return id ? LANGUAGES[id].monaco : PLAIN_EXT[extOf(name)] ?? "plaintext"; };
+// File names stay flat: letters, numbers, dots, dashes and spaces.
 export const validFileName = (name) => /^[\w][\w .-]{0,59}$/.test(name);

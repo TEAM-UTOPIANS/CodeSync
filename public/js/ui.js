@@ -2,6 +2,7 @@
 import { iconUrl } from "./languages.js";
 
 let toastTimer;
+// Flash a short message at the bottom of the screen.
 export function toast(message, icon = "ph-check-circle") {
   const el = document.getElementById("toast");
   el.replaceChildren(Object.assign(document.createElement("i"), { className: `ph ${icon}` }), document.createTextNode(message));
@@ -15,6 +16,7 @@ export function langTile(lang, size = 22) {
   const tile = document.createElement("span");
   tile.className = "lang-tile";
   tile.style.cssText = `width:${size}px;height:${size}px`;
+  // No logo for this language, so fall back to its initials.
   const mono = () => { tile.classList.add("mono"); tile.textContent = lang.label.replace(/[^A-Za-z#+]/g, "").slice(0, 2); };
   const url = iconUrl(lang.icon);
   if (!url) { mono(); return tile; }
@@ -29,7 +31,9 @@ export function langTile(lang, size = 22) {
 
 /** Show `menu` under `button`; closes on outside click or Escape. */
 export function anchorMenu(button, menu) {
+  // Hide the menu and tell the button it is closed.
   const close = () => { menu.hidden = true; button.setAttribute("aria-expanded", "false"); };
+  // Close any other menu, then place this one under its button.
   const open = () => {
     for (const other of document.querySelectorAll(".menu")) other.hidden = true;
     const r = button.getBoundingClientRect();
@@ -54,6 +58,7 @@ export function createPalette(dialog) {
   const list = dialog.querySelector(".pal-list");
   let all = [], shown = [], index = 0;
 
+  // Rank one item against the typed words. -1 means it does not match at all.
   const score = (item, terms) => {
     const hay = `${item.title} ${item.group ?? ""} ${item.keywords ?? ""}`.toLowerCase();
     if (!terms.every((t) => hay.includes(t))) return -1;
@@ -61,6 +66,7 @@ export function createPalette(dialog) {
     return title === terms.join(" ") ? 3 : title.startsWith(terms[0] ?? "") ? 2 : 1;
   };
 
+  // Redraw the list for the current query, grouped and with the first item selected.
   function render() {
     const terms = input.value.toLowerCase().split(/\s+/).filter(Boolean);
     shown = all.map((item) => [item, score(item, terms)]).filter(([, s]) => s >= 0).sort((a, b) => (terms.length ? b[1] - a[1] : 0)).map(([i]) => i);
@@ -92,12 +98,14 @@ export function createPalette(dialog) {
     mark();
   }
 
+  // Move the selection highlight without rebuilding the list.
   function mark() {
     list.querySelectorAll(".pal-item").forEach((el, i) => el.setAttribute("aria-selected", String(i === index)));
     input.setAttribute("aria-activedescendant", `pal-${index}`);
     list.querySelector(`#pal-${index}`)?.scrollIntoView({ block: "nearest" });
   }
 
+  // Close the palette first, then run the item, so the action sees a clean page.
   function choose(i) {
     const item = shown[i];
     if (!item) return;
@@ -114,6 +122,7 @@ export function createPalette(dialog) {
   dialog.addEventListener("click", (e) => { if (e.target === dialog) dialog.close(); });
 
   return {
+    // Open the palette, building the item list fresh each time.
     open(build, placeholder = "Type a command or a language") {
       all = build();
       input.value = "";

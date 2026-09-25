@@ -9,12 +9,17 @@ export const LIMITS = { users: 30, chat: 200, checkpoints: 30, update: 256 * 102
 // Cursor colours (identity only). Role is shown separately, so these stay away from the role colours.
 const CURSOR_COLORS = ["#f28b82", "#7bc47f", "#7fb7f5", "#f6c453", "#c3a6f2", "#f2a1cf", "#f4a261", "#9bd16b"];
 
+// Hash a secret so the room can compare it without storing it.
 export const sha = (s) => createHash("sha256").update(String(s)).digest("hex");
+// A fresh random token, used for host handover.
 export const newToken = () => randomBytes(18).toString("base64url");
+// Strip control characters and angle brackets out of a display name.
 export const cleanName = (s) => [...String(s ?? "")].filter((c) => c.charCodeAt(0) >= 32 && c !== "<" && c !== ">").join("").trim().slice(0, LIMITS.name) || "Guest";
+// Accept a room id only if it looks like one of ours.
 export const cleanRoomId = (s) => (/^[a-z0-9-]{4,40}$/i.test(String(s)) ? String(s).toLowerCase() : null);
 
 export class Room {
+  // A room starts empty, unlocked, with no host and no passcode.
   constructor(id) {
     this.id = id;
     this.doc = new Y.Doc();
@@ -31,6 +36,7 @@ export class Room {
     this.colorIndex = 0;
   }
 
+  // Mark the room as used, so the sweeper leaves it alone.
   touch() { this.touched = Date.now(); }
   /** Project files in tab order: [{name, code}]. Each file is a Y.Text inside the "files" map. */
   files() {
@@ -39,11 +45,14 @@ export class Room {
     const names = [...new Set([...order.filter((n) => map.has(n)), ...map.keys()])];
     return names.map((name) => ({ name, code: String(map.get(name)?.toString?.() ?? "") }));
   }
+  // Socket ids of everyone currently hosting.
   hostIds() { return [...this.users.values()].filter((u) => u.role === "host").map((u) => u.id); }
 
+  // The people list as the clients see it, without client ids.
   publicUsers() {
     return [...this.users.values()].map(({ id, name, color, role }) => ({ id, name, color, role }));
   }
+  // Room settings as the clients see them, with the passcode reduced to a yes or no.
   publicSettings() {
     return { defaultRole: this.defaultRole, locked: this.locked, hasPasscode: Boolean(this.passHash) };
   }
@@ -75,6 +84,7 @@ export class Room {
     return { ok: true, user };
   }
 
+  // Forget a disconnected socket and any request it had pending.
   remove(socketId) {
     const user = this.users.get(socketId);
     this.users.delete(socketId);
@@ -82,6 +92,7 @@ export class Room {
     return user;
   }
 
+  // The single question every write goes through.
   canEdit(socketId) {
     const role = this.users.get(socketId)?.role;
     return role === "host" || role === "editor";
@@ -113,6 +124,7 @@ export class Room {
     return { ok: true, target, token };
   }
 
+  // Host only: default role for new people, the lock, and the passcode.
   updateSettings(actorId, { defaultRole, locked, passcode }) {
     if (this.users.get(actorId)?.role !== "host") return { ok: false, error: "not-host" };
     if (defaultRole !== undefined) {
@@ -124,6 +136,7 @@ export class Room {
     return { ok: true };
   }
 
+  // Host only: remove somebody and keep their browser out for this session.
   kick(actorId, targetId) {
     if (this.users.get(actorId)?.role !== "host") return { ok: false, error: "not-host" };
     const target = this.users.get(targetId);
@@ -132,6 +145,7 @@ export class Room {
     return { ok: true, target };
   }
 
+  // A viewer asks for a pen, at most once every fifteen seconds.
   requestEdit(socketId) {
     const user = this.users.get(socketId);
     if (user?.role !== "viewer") return { ok: false, error: "not-viewer" };
@@ -141,6 +155,7 @@ export class Room {
     return { ok: true, user };
   }
 
+  // Store a chat message and hand back the version everyone should see.
   addChat(socketId, text) {
     const user = this.users.get(socketId);
     const body = String(text ?? "").trim().slice(0, LIMITS.message);
@@ -160,6 +175,7 @@ export class Room {
     return { ok: true };
   }
 
+  // Snapshot every file in the project under a name.
   saveCheckpoint(socketId, name) {
     const user = this.users.get(socketId);
     if (!this.canEdit(socketId)) return { ok: false, error: "read-only" };
@@ -183,6 +199,7 @@ export class Room {
     const cp = this.checkpoints.find((c) => c.id === id);
     if (!cp) return { ok: false, error: "no-checkpoint" };
     const updates = [];
+    // Collect the updates the transaction produces so they can be broadcast as one.
     const capture = (u) => updates.push(u);
     this.doc.on("update", capture);
     this.doc.transact(() => {
@@ -200,18 +217,22 @@ export class Room {
     return { ok: true, update: Y.mergeUpdates(updates), checkpoint: cp };
   }
 
+  // Checkpoint list for the side panel: names and counts, not the code.
   publicCheckpoints() {
     return this.checkpoints.map(({ id, name, by, ts, files }) => ({ id, name, by, ts, count: files.length, names: files.map((f) => f.name).slice(0, 6) }));
   }
 }
 
 export class RoomStore {
+  // Holds every live room and drops the ones nobody is using.
   constructor({ maxRooms = 500, idleMs = 30 * 60 * 1000 } = {}) {
     this.rooms = new Map();
     this.maxRooms = maxRooms;
     this.idleMs = idleMs;
   }
+  // An existing room, or undefined.
   get(id) { return this.rooms.get(id); }
+  // The room, creating it if there is space once idle rooms are swept.
   getOrCreate(id) {
     let room = this.rooms.get(id);
     if (!room) {

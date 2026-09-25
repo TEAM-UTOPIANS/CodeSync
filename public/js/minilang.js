@@ -4,6 +4,7 @@
 // in a Web Worker, and under `node --test`.
 
 export class MiniLangError extends Error {
+  // A MiniLang failure that knows which phase raised it and where.
   constructor(type, message, line, col) {
     super(`MiniLang ${type} at line ${line}, col ${col}: ${message}`);
     this.name = "MiniLangError";
@@ -16,6 +17,7 @@ export class MiniLangError extends Error {
 
 /** Thrown when INPUT is reached and stdin has no lines left. */
 export class InputNeeded extends Error {
+  // Carries whatever the program printed before it ran out of input.
   constructor(varName, output, line, col) {
     super(`Waiting for input for '${varName}' at line ${line}, col ${col}`);
     this.name = "InputNeeded";
@@ -33,20 +35,26 @@ const SINGLE = { "(": "LPAREN", ")": "RPAREN", "+": "PLUS", "-": "MINUS", "*": "
 const TWO_CHAR = { "<=": "LE", ">=": "GE", "!=": "NEQ", "==": "EQEQ" };
 const ESCAPES = { n: "\n", t: "\t", '"': '"', "\\": "\\" };
 
+// Character tests the lexer leans on.
 const isDigit = (c) => c >= "0" && c <= "9";
+// Identifier characters, including the underscore.
 const isAlpha = (c) => (c >= "a" && c <= "z") || (c >= "A" && c <= "Z") || c === "_";
 
+// Stage 1. Turn source text into tokens, each carrying its line and column.
 export function tokenize(source) {
   const src = source.replace(/\r\n?/g, "\n");
   const tokens = [];
   let i = 0, line = 1, col = 1;
 
+  // Look at a character without consuming it.
   const peek = (o = 0) => src[i + o] ?? "\0";
+  // Consume one character, keeping the line and column counters honest.
   const advance = () => {
     const ch = src[i++];
     if (ch === "\n") { line++; col = 1; } else col++;
     return ch;
   };
+  // Abort lexing with a positioned error.
   const fail = (msg, l = line, c = col) => { throw new MiniLangError("LexError", msg, l, c); };
 
   while (i < src.length) {
@@ -124,15 +132,22 @@ export function tokenize(source) {
    primary := NUMBER | STRING | IDENT | '(' expr ')'
 */
 
+// Stage 2. Turn tokens into an abstract syntax tree by recursive descent.
 export function parse(tokens) {
   let i = 0;
+  // The token we are looking at.
   const peek = () => tokens[i];
+  // Is the current token of this type?
   const at = (t) => peek().type === t;
+  // Consume the current token, stopping at the end of the stream.
   const advance = () => (i < tokens.length - 1 ? tokens[i++] : tokens[i]);
+  // Consume the current token only if it is one of these types.
   const match = (...types) => (types.includes(peek().type) ? advance() : null);
   const fail = (msg, tok = peek()) => { throw new MiniLangError("ParseError", msg, tok.line, tok.col); };
+  // Consume a required token, or fail with a positioned message.
   const expect = (t, msg) => (at(t) ? advance() : fail(msg));
 
+  // One statement: LET, PRINT, INPUT or an IF block.
   const stmt = () => {
     let t;
     if ((t = match("LET"))) {
@@ -157,6 +172,7 @@ export function parse(tokens) {
     return fail(`Unexpected token ${peek().type}`);
   };
 
+  // A comparison between two expressions, which is all IF accepts.
   const condition = () => {
     const left = expr();
     const op = match("LT", "GT", "EQEQ", "NEQ", "LE", "GE");
@@ -164,6 +180,7 @@ export function parse(tokens) {
     return { kind: "bin", op: op.value, left, right: expr(), line: op.line, col: op.col };
   };
 
+  // Build a left-associative operator level out of the level below it.
   const binary = (next, ...ops) => () => {
     let left = next();
     for (let op; (op = match(...ops)); ) {
@@ -172,6 +189,7 @@ export function parse(tokens) {
     return left;
   };
 
+  // A literal, a variable, or a parenthesised expression.
   const primary = () => {
     let t;
     if ((t = match("NUMBER"))) return { kind: "num", value: Number(t.value), line: t.line, col: t.col };
@@ -184,6 +202,7 @@ export function parse(tokens) {
     }
     return fail("Expected expression");
   };
+  // An optional leading sign in front of a primary.
   const factor = () => {
     const op = match("PLUS", "MINUS");
     return op ? { kind: "unary", op: op.value, expr: factor(), line: op.line, col: op.col } : primary();
@@ -203,12 +222,16 @@ export function parse(tokens) {
    Static checks: undefined variables and operator/type compatibility.
    Types are "number" | "string" | "bool" | "unknown" (unknown always passes). */
 
+// Stage 3. Walk the tree and reject undefined variables and impossible operations.
 export function analyze(program) {
   const defined = new Set();
   const types = new Map();
+  // Abort the check with the offending node's position.
   const fail = (n, msg) => { throw new MiniLangError("SemanticError", msg, n.line, n.col); };
+  // Numbers pass, and so does anything we could not work out.
   const numeric = (t) => t === "number" || t === "unknown";
 
+  // Work out the type of an expression, complaining when the operands do not fit.
   const typeOf = (e) => {
     switch (e.kind) {
       case "num": return "number";
@@ -228,6 +251,7 @@ export function analyze(program) {
           return "number";
         }
         if (e.op === "==" || e.op === "!=") {
+          // Comparing a string with a non-string is a mistake worth reporting.
           const mismatch = (a, b) => a === "string" && b !== "string" && b !== "unknown";
           if (mismatch(l, r) || mismatch(r, l)) fail(e, `Operator '${e.op}' expects matching operand types`);
           return "bool";
@@ -238,6 +262,7 @@ export function analyze(program) {
     }
   };
 
+  // Check one statement, recording the variables it defines.
   const check = (s) => {
     if (s.kind === "let") {
       const t = typeOf(s.expr);
@@ -252,6 +277,7 @@ export function analyze(program) {
 
 /* ─────────────────────────── Interpreter ─────────────────────────── */
 
+// Print values the way MiniLang spells them.
 const show = (v) => (v === true ? "true" : v === false ? "false" : String(v));
 const NUMERIC_RE = /^\s*-?\d+(\.\d+)?\s*$/;
 
@@ -280,19 +306,24 @@ export function run(source, { stdin = "", stepLimit = 50_000 } = {}) {
   }
 }
 
+// Stage 4. Walk the tree and actually run it.
 function execute(program, { stdin, stepLimit, output }) {
   const vars = new Map();
   const lines = stdin === "" ? [] : stdin.replace(/\r\n?/g, "\n").split("\n");
   let stdinIdx = 0, steps = 0;
 
+  // A runtime error carrying the position of the node that raised it.
   const rtErr = (n, msg) => new MiniLangError("RuntimeError", msg, n.line, n.col);
+  // Count a step and stop the program if it runs away.
   const tick = (n) => { if (++steps > stepLimit) throw rtErr(n, `Execution step limit exceeded (${stepLimit}).`); };
+  // Coerce a value to a number, or explain why that is impossible.
   const toNumber = (v, n) => {
     if (typeof v === "number") return v;
     if (typeof v === "string" && NUMERIC_RE.test(v)) return Number(v);
     throw rtErr(n, typeof v === "string" ? `Expected number, got string '${v}'` : `Expected number, got ${typeof v}`);
   };
 
+  // Evaluate one expression node.
   const evalExpr = (e) => {
     tick(e);
     switch (e.kind) {
@@ -329,6 +360,7 @@ function execute(program, { stdin, stepLimit, output }) {
     throw rtErr(e, `Unknown expression type: ${e.kind}`);
   };
 
+  // Run one statement node.
   const exec = (s) => {
     tick(s);
     switch (s.kind) {

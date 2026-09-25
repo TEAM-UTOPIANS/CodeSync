@@ -1,6 +1,7 @@
 // Two-way binding between a Monaco text model and a Y.Text, plus remote cursors/selections.
 const LOCAL = Symbol("local");
 
+// Keep one Monaco model and one shared text in step, in both directions.
 export function bindModel(monaco, model, ytext, isEditable = () => true) {
   model.setEOL(monaco.editor.EndOfLineSequence.LF);
   let applyingRemote = false;
@@ -32,6 +33,7 @@ export function bindModel(monaco, model, ytext, isEditable = () => true) {
     if (txn.origin === LOCAL) return;
     let pos = 0;
     const edits = [];
+    // Turn a pair of offsets into a Monaco range.
     const rangeOf = (a, b) => {
       const s = model.getPositionAt(a), e = model.getPositionAt(b);
       return new monaco.Range(s.lineNumber, s.column, e.lineNumber, e.column);
@@ -56,6 +58,7 @@ export function bindModel(monaco, model, ytext, isEditable = () => true) {
       applyingRemote = true;
       try { model.setValue(text); } finally { applyingRemote = false; }
     },
+    // Stop listening in both directions.
     dispose() { sub.dispose(); ytext.unobserve(observer); },
   };
 }
@@ -65,10 +68,14 @@ export function createRemoteCursors(monaco, editor, getActiveFile) {
   const style = document.head.appendChild(document.createElement("style"));
   const state = new Map(); // peerId -> {name, color, sel}
   const collections = new Map(); // peerId -> decorations collection
+  // A peer id, reduced to something safe for a class name.
   const cssId = (peerId) => peerId.replace(/[^a-zA-Z0-9]/g, "");
+  // Names come from other people, so strip anything that is not a plain character.
   const safeName = (n) => String(n).replace(/[^\p{L}\p{N} _.-]/gu, "").slice(0, 24) || "Guest";
+  // Only accept a real hex colour from the wire.
   const safeColor = (c) => (/^#[0-9a-f]{6}$/i.test(c) ? c : "#7fb7f5");
 
+  // One style rule per peer: the caret, their name and their selection tint.
   const rebuildStyles = () => {
     style.textContent = [...state].map(([id, { name, color }]) => {
       const c = cssId(id), col = safeColor(color);
@@ -78,11 +85,13 @@ export function createRemoteCursors(monaco, editor, getActiveFile) {
     }).join("\n");
   };
 
+  // Draw one peer's caret and selection, but only in the file they are actually in.
   function render(peerId) {
     const s = state.get(peerId);
     const coll = collections.get(peerId);
     const model = editor.getModel();
     if (!s?.sel || !model || (s.sel.file ?? "") !== getActiveFile()) { coll?.clear(); return; }
+    // Keep an offset inside the document, however stale it is.
     const clamp = (n) => Math.max(0, Math.min(model.getValueLength(), Number.isFinite(n) ? n : 0));
     const a = model.getPositionAt(clamp(s.sel.anchor)), h = model.getPositionAt(clamp(s.sel.head));
     const c = cssId(peerId);
@@ -97,6 +106,7 @@ export function createRemoteCursors(monaco, editor, getActiveFile) {
   }
 
   return {
+    // Take one peer's latest cursor, or null when they are gone.
     update(peerId, next) {
       if (!next) {
         collections.get(peerId)?.clear();

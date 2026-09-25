@@ -1,12 +1,14 @@
 // Runs user JavaScript in an isolated Web Worker. The host terminates this worker on timeout.
 const post = (type, text) => self.postMessage({ type, text });
 
+// Render any value the way a console would.
 const format = (v) => {
   if (typeof v === "string") return v;
   if (v instanceof Error) return v.stack || `${v.name}: ${v.message}`;
   if (typeof v === "function" || typeof v === "symbol" || typeof v === "undefined") return String(v);
   try { return JSON.stringify(v, (k, x) => (typeof x === "bigint" ? `${x}n` : x), 2); } catch { return String(v); }
 };
+// Join console arguments into one printable line.
 const line = (args) => args.map(format).join(" ") + "\n";
 
 self.onmessage = async ({ data: { code, stdin, files = [] } }) => {
@@ -35,13 +37,16 @@ self.onmessage = async ({ data: { code, stdin, files = [] } }) => {
   // `done` fires once the main body settled AND no timers are pending, so setTimeout demos work.
   const timers = new Set();
   let mainSettled = false, finished = false;
+  // Report the result once, however we got here.
   const finish = (ok) => {
     if (finished) return;
     finished = true;
     self.postMessage({ type: "done", ok, error: errorInfo });
   };
+  // Done only when the main body settled and no timers are still pending.
   const maybeFinish = () => { if (mainSettled && timers.size === 0) finish(!failed); };
   let failed = false, errorInfo = null;
+  // Print an error and remember where in the user's code it came from.
   const fail = (e) => {
     failed = true;
     if (e instanceof Error) {
@@ -52,6 +57,7 @@ self.onmessage = async ({ data: { code, stdin, files = [] } }) => {
     } else post("stderr", `Uncaught ${format(e)}\n`);
   };
 
+  // Track timers so a pending setTimeout keeps the run alive.
   const wrapTimer = (native, repeat) => (fn, ms, ...rest) => {
     const id = native(() => {
       if (!repeat) timers.delete(id);

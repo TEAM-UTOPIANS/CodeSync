@@ -7,6 +7,7 @@ const only = process.argv.slice(2);
 const ids = Object.keys(REMOTE).filter((id) => !only.length || only.includes(id));
 let failed = 0;
 
+// Run one language's starter program on one provider and say whether it behaved.
 async function check(id, provider) {
   const lang = LANGUAGES[id];
   try {
