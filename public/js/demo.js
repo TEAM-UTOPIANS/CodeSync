@@ -1,233 +1,188 @@
-// The sample room in the hero. It plays a short scene on its own, then hands the controls over:
-// flip the viewer into an editor and watch the very same keystroke be accepted.
-// Everything in here is authored sample content, and the card says so.
+// The sample room in Fig. 1: a scripted re-enactment of two people editing one file, with the
+// third one refused. Nothing here talks to the network; it is a drawing that moves.
 
-const CREW = [
-  { name: "Mayank", color: "#ffb3a0", role: "host" },
-  { name: "Nitin", color: "#9ceccd", role: "editor" },
-  { name: "Swarit", color: "#b9ccff", role: "viewer" },
+const FILES = {
+  "greet.py": [
+    "from util import shout",
+    "",
+    "def greet(name):",
+    "",
+    "",
+    "greet(input() or \"world\")",
+  ],
+  "util.py": [
+    "def shout(text):",
+    "    return text.upper() + \"!\"",
+  ],
+};
+
+// One beat of the story: who is typing, into which file and line, and what the caption says.
+const SCRIPT = [
+  { note: "Mayank opened the room, so Mayank is the host. The host always has the pen.", wait: 900 },
+  { who: "Mayank", file: "greet.py", line: 3, text: "    print(shout(f\"hello {name}\"))", note: "The host types. Every keystroke is a Yjs update on the wire." },
+  { note: "Nitin joins from a phone. New people arrive as editors unless the host says otherwise.", wait: 1100 },
+  { who: "Nitin", file: "util.py", line: 2, text: "", note: "Nitin opens the other file. Twelve files live in the same document." },
+  { who: "Nitin", file: "util.py", line: 2, text: "    # louder", note: "Two people, two files, one document. Neither edit waits for the other." },
+  { who: "Swarit", file: "greet.py", line: 4, text: "    # can I?", blocked: true, note: "Swarit is a viewer. The server refuses the update before it reaches the document." },
+  { note: "Swarit asks for the pen. The host sees the request in the people panel.", wait: 1200 },
+  { who: "Swarit", file: "greet.py", line: 4, text: "    return name", note: "Now an editor. Same keystrokes, and this time the server keeps them." },
+  { note: "Run it, and the terminal asks for a name in the same pane it prints to.", wait: 1400 },
 ];
-const KEYWORDS = /^(from|import|def|return|print|if|else|for|in|not|None|True|False)$/;
-const FACE = '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="6" cy="7" r="1.4" fill="currentColor"/><circle cx="11" cy="7" r="1.4" fill="currentColor"/><path d="M6 10.5c1.2.9 2.6.9 3.8 0" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linecap="round"/></svg>';
 
-// The sample room: it plays a scene, then lets the visitor drive.
-export function createDemo({ root, tabs, code, crew, note, controls, state }) {
-  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
-  const people = CREW.map((p) => ({ ...p }));
-  const files = { "util.py": [""], "main.py": [""] };
-  let active = "util.py";
-  let caret = null;
-  let blockedBy = null;
-  let generation = 0;
-  let auto = true;
+/**
+ * Wire the demo figure up and play it on a loop.
+ * Elements: { tabs, code, note, stamp, roleBtn, replayBtn }.
+ */
+export function createDemo(el) {
+  // A fresh copy of the project, because the script types into it.
+  const fresh = () => Object.fromEntries(Object.entries(FILES).map(([k, v]) => [k, [...v]]));
+  let files = fresh();
+  let active = "greet.py";
+  let caret = null;   // { file, line, col, who } or null
+  let blocked = false;
+  let role = "host";  // what the reader is pretending to be
+  let timer = null;
+  let stop = false;
 
-  // Small DOM helper: tag, class, text.
-  const el = (tag, cls, text) => {
-    const n = document.createElement(tag);
-    if (cls) n.className = cls;
-    if (text !== undefined) n.textContent = text;
-    return n;
+  /* ── Drawing ─────────────────────────────────────────────────── */
+  const KEYWORDS = /\b(from|import|def|return|print|input|or|if|else|for|in|while|True|False|None)\b/g;
+  // Escape a line, then colour keywords, strings and comments. Order matters: escape first.
+  const paint = (line) => {
+    const safe = line.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
+    if (safe.trimStart().startsWith("#")) return `<span class="cm">${safe}</span>`;
+    return safe
+      .replace(/("[^"]*")/g, '<span class="st">$1</span>')
+      .replace(KEYWORDS, '<span class="kw">$&</span>');
   };
-  // Look somebody up in the sample crew.
-  const person = (name) => people.find((p) => p.name === name);
-  // Wait, so the scene can be written as plain steps.
-  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-  // Colour one line of sample Python: comments, strings, keywords.
-  function paintLine(line) {
-    const out = el("span", "ln");
-    if (!line) return out;
-    if (line.trimStart().startsWith("#")) { out.append(el("span", "cm", line)); return out; }
-    for (const piece of line.split(/("[^"]*")/)) {
-      if (!piece) continue;
-      if (piece.startsWith('"')) { out.append(el("span", "st", piece)); continue; }
-      for (const word of piece.split(/(\w+)/)) {
-        if (!word) continue;
-        out.append(KEYWORDS.test(word) ? el("span", "kw", word) : document.createTextNode(word));
-      }
-    }
-    return out;
+  // Redraw the tab strip, marking the file the script is in.
+  function drawTabs() {
+    el.tabs.replaceChildren(...Object.keys(files).map((name) => {
+      const b = document.createElement("button");
+      b.className = "demo-tab";
+      b.role = "tab";
+      b.type = "button";
+      b.setAttribute("aria-selected", String(name === active));
+      b.textContent = name;
+      b.addEventListener("click", () => { active = name; draw(); });
+      return b;
+    }));
   }
 
-  // Redraw the whole card from the current state.
-  function render() {
-    tabs.replaceChildren();
-    for (const name of Object.keys(files)) {
-      const t = el("button", "demo-tab");
-      t.type = "button";
-      t.setAttribute("role", "tab");
-      t.setAttribute("aria-selected", String(name === active));
-      t.append(el("i", "ph ph-file-py"), el("span", "", name));
-      t.addEventListener("click", () => { stopAuto(); active = name; render(); });
-      tabs.append(t);
-    }
-
-    code.replaceChildren();
+  // Redraw the code, putting the block caret wherever the script has reached.
+  function draw() {
     const lines = files[active];
+    el.code.replaceChildren();
     lines.forEach((text, i) => {
-      const line = paintLine(text);
-      if (caret && caret.file === active && i === lines.length - 1) {
-        const c = el("span", "cursor");
-        c.style.setProperty("--c", caret.color);
-        const tag = el("span", "tag");
-        tag.innerHTML = FACE;
-        tag.append(document.createTextNode(caret.who));
-        c.append(tag);
-        line.append(c);
+      const row = document.createElement("span");
+      row.className = "ln";
+      const here = caret && caret.file === active && caret.line === i;
+      row.innerHTML = paint(here ? text.slice(0, caret.col) : text);
+      if (here) {
+        const cur = document.createElement("span");
+        cur.className = "cursor";
+        const who = document.createElement("span");
+        who.className = "who";
+        who.textContent = caret.who;
+        cur.append(who);
+        row.append(cur);
+        if (text.length > caret.col) row.insertAdjacentHTML("beforeend", paint(text.slice(caret.col)));
       }
-      code.append(line, document.createTextNode("\n"));
+      el.code.append(row);
     });
-    if (blockedBy) {
-      const flag = el("div", "blocked");
-      flag.append(el("i", "ph ph-hand-palm"), el("span", "", `${blockedBy} is a viewer`));
-      code.append(flag);
+    if (blocked) {
+      const tag = document.createElement("div");
+      tag.className = "blocked";
+      tag.innerHTML = '<i class="ph ph-lock-simple"></i>Read only';
+      el.code.append(tag);
     }
-
-    crew.replaceChildren();
-    for (const p of people) {
-      const chip = el("span", `chip${caret?.who === p.name ? " speaking" : ""}`, p.name[0]);
-      chip.style.background = p.color;
-      chip.title = `${p.name} (${p.role})`;
-      crew.append(chip);
-    }
-    renderControls();
   }
 
-  // The two buttons under the card, which change with Swarit's role.
-  function renderControls() {
-    controls.replaceChildren();
-    const swarit = person("Swarit");
-    const flip = el("button", "btn sm", swarit.role === "viewer" ? "Give Swarit a pen" : "Take the pen back");
-    flip.type = "button";
-    flip.addEventListener("click", () => {
-      stopAuto();
-      swarit.role = swarit.role === "viewer" ? "editor" : "viewer";
-      blockedBy = null;
-      say(swarit.role === "editor"
-        ? "Mayank handed Swarit a pen. The server applies that instantly, for everyone."
-        : "Swarit is back to watching. The next keystroke will bounce.");
-      render();
-    });
+  /* ── Playing ─────────────────────────────────────────────────── */
+  // A cancellable pause.
+  const pause = (ms) => new Promise((resolve) => { timer = setTimeout(resolve, ms); });
 
-    const tryType = el("button", "btn sm primary", "Type as Swarit");
-    tryType.type = "button";
-    tryType.addEventListener("click", () => { stopAuto(); attempt(swarit); });
-    controls.append(flip, tryType);
-  }
-
-  // Write the line of commentary under the card.
-  const say = (text) => { note.textContent = text; };
-  // Set the little status sticker in the card's header.
-  function setState(label, kind) {
-    state.textContent = label;
-    state.className = `stamp ${kind}`;
-  }
-
-  // Somebody tries to type: accepted when they hold a pen, bounced when they do not.
-  async function attempt(p) {
-    if (p.role === "viewer") {
-      blockedBy = p.name;
-      caret = null;
-      setState("Bounced", "bad");
-      say(`${p.name} tried to type. The room server turned the edit away, so nobody else saw a thing.`);
-      render();
-      await sleep(2300);
-      if (blockedBy === p.name) { blockedBy = null; setState("Sample", "ok"); render(); }
-      return;
+  // Type `text` into one line, a character at a time, with the caret in front of it.
+  async function type(step) {
+    active = step.file;
+    files[step.file][step.line] = "";
+    drawTabs();
+    for (let i = 0; i <= step.text.length; i++) {
+      if (stop) return;
+      files[step.file][step.line] = step.text.slice(0, i);
+      caret = { file: step.file, line: step.line, col: i, who: step.who };
+      draw();
+      await pause(22 + Math.random() * 45);
     }
-    blockedBy = null;
-    setState("Accepted", "ok");
-    say(`${p.name} has a pen now, so the keystroke lands and everyone in the room sees it.`);
-    await typeInto("main.py", `\nprint(greet("${p.name}"))`, p, 0);
+  }
+
+  // A refused edit: the caret gets as far as the keyboard, and the update never lands.
+  async function refuse(step) {
+    await type(step);
+    if (stop) return;
+    blocked = true;
+    files[step.file][step.line] = "";
     caret = null;
-    render();
+    draw();
+    await pause(1500);
+    blocked = false;
+    draw();
   }
 
-  // Type text into a file, one character at a time, as a named person.
-  async function typeInto(file, text, p, speed = 32) {
-    const mine = ++generation;
-    active = file;
-    caret = { file, who: p.name, color: p.color };
-    for (const ch of text) {
-      if (mine !== generation) return false;
-      const lines = files[file];
-      if (ch === "\n") lines.push(""); else lines[lines.length - 1] += ch;
-      render();
-      if (speed) await sleep(speed);
-    }
-    render();
-    return mine === generation;
-  }
-
-  // The visitor took over, so cancel whatever the scene was doing.
-  function stopAuto() { auto = false; generation += 1; }
-
-  // Back to an empty project with Swarit watching.
-  function reset() {
-    files["util.py"] = [""];
-    files["main.py"] = [""];
-    active = "util.py";
-    caret = null;
-    blockedBy = null;
-    person("Swarit").role = "viewer";
-  }
-
-  // The scene, start to finish.
+  // Walk the script once, then start again.
   async function play() {
-    const mine = ++generation;
-    // Stop immediately if the visitor interrupted or the card scrolled away.
-    const alive = () => auto && mine === generation;
-
-    reset();
-    setState("Sample", "ok");
-    say("Three people, one project. Watch for a moment, then take over below.");
-    render();
-    await sleep(1300);
-    if (!alive()) return;
-
-    say("Nitin has a pen. He writes a little helper in util.py.");
-    if (!(await typeInto("util.py", 'def greet(name):\n    return "hi " + name', person("Nitin")))) return;
-    await sleep(850);
-    if (!alive()) return;
-
-    say("Mayank hosts the room, and calls it from main.py.");
-    if (!(await typeInto("main.py", 'from util import greet\n\nprint(greet("Nitin"))', person("Mayank")))) return;
+    files = fresh();
+    active = "greet.py";
     caret = null;
-    render();
-    await sleep(1000);
-    if (!alive()) return;
-
-    say("Swarit joined as a viewer, and starts typing anyway.");
-    render();
-    await sleep(950);
-    if (!alive()) return;
-    await attempt(person("Swarit"));
-    if (!alive()) return;
-
-    say("Your turn: hand Swarit a pen, then try that keystroke again.");
-    auto = false;
+    blocked = false;
+    drawTabs();
+    draw();
+    for (const step of SCRIPT) {
+      if (stop) return;
+      el.note.textContent = step.note;
+      // Whatever the reader set the role chip to decides whether these keystrokes are allowed.
+      const refused = step.blocked || (role === "viewer" && step.who);
+      if (step.who && refused) await refuse(step);
+      else if (step.who) await type(step);
+      else await pause(step.wait ?? 900);
+      if (stop) return;
+      await pause(step.who ? 850 : 200);
+    }
+    caret = null;
+    draw();
+    el.note.textContent = "That is the whole idea. Open a room and it is your names in the margin.";
+    await pause(3200);
+    if (!stop) play();
   }
 
-  // Reduced motion: show where the scene would have ended, with no typing.
-  function showFinalState() {
-    files["util.py"] = ["def greet(name):", '    return "hi " + name'];
-    files["main.py"] = ["from util import greet", "", 'print(greet("Nitin"))'];
-    active = "main.py";
-    setState("Sample", "ok");
-    say("A sample room: Mayank hosts, Nitin edits, Swarit watches until the host says otherwise.");
-    render();
+  // Start again from the top, cancelling whatever was running.
+  function restart() {
+    stop = true;
+    clearTimeout(timer);
+    queueMicrotask(() => { stop = false; play(); });
   }
 
-  // Start only once the card is actually on screen, and stand down when it scrolls away.
-  const observer = new IntersectionObserver(([entry]) => {
-    if (!entry.isIntersecting) { if (auto) generation += 1; return; }
-    observer.disconnect();
-    if (reduce) showFinalState(); else play();
-  }, { threshold: 0.3 });
+  const ROLES = ["host", "editor", "viewer"];
+  el.roleBtn.addEventListener("click", () => {
+    role = ROLES[(ROLES.indexOf(role) + 1) % ROLES.length];
+    el.stamp.className = `stamp ${role}`;
+    el.stamp.textContent = role[0].toUpperCase() + role.slice(1);
+    restart();
+  });
+  el.replayBtn.addEventListener("click", restart);
 
-  render();
-  say("Warming up the sample room.");
-  observer.observe(root);
-
-  return { replay: () => { auto = true; play(); } };
+  // Only animate while the figure is on screen, and never for a reader who asked for stillness.
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    files["greet.py"][3] = "    print(shout(f\"hello {name}\"))";
+    files["greet.py"][4] = "    return name";
+    drawTabs();
+    draw();
+    el.note.textContent = "Two people editing one file, with a third reading along.";
+    return;
+  }
+  const io = new IntersectionObserver(([entry]) => {
+    if (entry.isIntersecting && !timer) restart();
+    else if (!entry.isIntersecting) { stop = true; clearTimeout(timer); timer = null; }
+  }, { threshold: 0.2 });
+  io.observe(el.code);
 }

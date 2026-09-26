@@ -81,7 +81,7 @@ or just sketching an idea with a friend.
   empty prompt runs the project.
 - Command palette on `Ctrl/Cmd + K` for every action and a fuzzy language switcher.
 - Live web preview that assembles your HTML, CSS and JavaScript files and refreshes as you type.
-- Four themes (Cream, Midnight, Bubblegum, Ocean) that also recolour the code.
+- Four two-ink themes (Newsprint, Phosphor, Amber, Ink) that also recolour the editor.
 - Font size, word wrap, minimap and ligature settings, remembered per browser.
 - Compiler and runtime errors marked on the exact line.
 

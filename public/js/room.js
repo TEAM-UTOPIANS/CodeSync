@@ -682,8 +682,11 @@ async function main() {
     chatLog.querySelector(".blank")?.remove();
     const row = el("div", "msg");
     const who = el("b");
-    who.style.color = /^#[0-9a-f]{6}$/i.test(m.color) ? m.color : "";
-    who.append(document.createTextNode(String(m.by).slice(0, 20)));
+    // Identity is carried by the chip, not by tinted text, so the name stays readable on any ground.
+    const tick = el("span", "chip", (String(m.by)[0] || "?").toUpperCase());
+    tick.style.cssText = "width:18px;height:18px;font-size:10px";
+    if (/^#[0-9a-f]{6}$/i.test(m.color)) tick.style.background = m.color;
+    who.append(tick, document.createTextNode(String(m.by).slice(0, 20)));
     if (!peerMode && ["host", "editor", "viewer"].includes(m.role)) who.append(el("span", `stamp ${m.role}`, m.role));
     row.append(who, el("span", "", String(m.text).slice(0, 500)));
     chatLog.append(row);

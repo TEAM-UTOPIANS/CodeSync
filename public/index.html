@@ -3,268 +3,260 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>CodeSync: Ctrl + Alt + Together</title>
-  <meta name="description" content="A friendly live code editor in the browser. Open a room, share the link, and build the same multi-file project together. The host decides who can edit, and the server backs it up. 33 languages, no signup." />
+  <title>CodeSync — write code together, decide who holds the pen</title>
+  <meta name="description" content="CodeSync is a free live code editor for the browser. Open a room, share the link, and write code together in 33 languages with real host, editor and viewer roles." />
   <meta name="color-scheme" content="light dark" />
   <meta property="og:title" content="CodeSync" />
-  <meta property="og:description" content="Ctrl + Alt + Together. Live rooms with real permissions, multi-file projects and 33 languages. By Mayank Karki, Nitin Kandpal and Swarit Kumar." />
-  <meta property="og:image" content="/img/hero-art.jpg" />
+  <meta property="og:description" content="A live code editor with rooms, roles and 33 languages. Free, and open source." />
   <meta property="og:type" content="website" />
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   <link rel="preconnect" href="https://fonts.googleapis.com" /><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Gabarito:wght@500;600;700;800;900&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@phosphor-icons/web@2.1.2/src/regular/style.css" />
   <link rel="stylesheet" href="/css/style.css" />
-  <script>try{const t=localStorage.getItem("codesync:theme");let id=({dark:"midnight",light:"cream",signal:"midnight",enamel:"cream",graphite:"midnight",paper:"cream",nightmail:"ocean",cobalt:"ocean",filament:"midnight",loco:"midnight"})[t]||t;if(!["cream","midnight","bubblegum","ocean"].includes(id))id=matchMedia("(prefers-color-scheme: dark)").matches?"midnight":"cream";document.documentElement.dataset.theme=id}catch{document.documentElement.dataset.theme="cream"}</script>
+  <script>/* Paint the right ground before the first frame, so the page never flashes. */
+  try{const t=localStorage.getItem("codesync:theme");const legacy={cream:"newsprint",light:"newsprint",paper:"newsprint",enamel:"newsprint",bubblegum:"newsprint",dark:"ink",midnight:"ink",graphite:"ink",filament:"ink",loco:"ink",signal:"ink",ocean:"phosphor",nightmail:"phosphor",cobalt:"phosphor"};let id=legacy[t]||t;if(!["newsprint","phosphor","amber","ink"].includes(id))id=matchMedia("(prefers-color-scheme: dark)").matches?"ink":"newsprint";document.documentElement.dataset.theme=id}catch{document.documentElement.dataset.theme="newsprint"}</script>
 </head>
 <body>
-<div class="dotted" aria-hidden="true"></div>
-<div class="scroll-bar" aria-hidden="true"><i></i></div>
+<div class="grain" aria-hidden="true"></div>
 
-<header class="nav" id="nav">
-  <div class="wrap">
+<header class="masthead">
+  <div class="sheet">
     <a class="wordmark" href="/">
       <svg class="mark" viewBox="0 0 32 32" aria-hidden="true">
-        <rect x="3" y="6" width="26" height="20" rx="8" fill="var(--accent)"/>
-        <circle class="eye" cx="12" cy="15" r="2.6" fill="var(--accent-ink)"/>
-        <circle class="eye" cx="20" cy="15" r="2.6" fill="var(--accent-ink)"/>
-        <path d="M13.5 20.5c1.6 1.2 3.4 1.2 5 0" stroke="var(--accent-ink)" stroke-width="1.8" stroke-linecap="round" fill="none"/>
+        <rect x="2" y="2" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2.5"/>
+        <rect x="7" y="8" width="5" height="16" fill="var(--spot)"/>
+        <rect x="16" y="8" width="9" height="5" fill="currentColor"/>
+        <rect x="16" y="19" width="9" height="5" fill="currentColor"/>
       </svg>
       CodeSync
     </a>
-    <nav class="nav-links" aria-label="Sections">
-      <a href="#roles">Roles</a><a href="#projects">Projects</a><a href="#languages">Languages</a><a href="#how">How it works</a><a href="#team">Team</a>
+    <nav aria-label="Sections">
+      <a href="#pen">The pen</a>
+      <a href="#room">The room</a>
+      <a href="#wire">The wire</a>
+      <a href="#languages">Languages</a>
+      <a href="#crew">Crew</a>
     </nav>
-    <div class="nav-actions">
-      <div class="themes hide-md" id="themes" role="group" aria-label="Colour theme"></div>
-      <button class="btn icon quiet show-md" id="theme-cycle" title="Next theme" aria-label="Next theme"><i class="ph ph-palette"></i></button>
-      <button class="btn quiet" id="join-open"><span class="hide-xs">Join a room</span><span class="show-xs">Join</span></button>
-      <button class="btn primary" data-start>Start a room</button>
+    <div class="actions">
+      <div class="inks" id="inks" role="group" aria-label="Ink"></div>
+      <a class="btn hide-md" href="/play"><i class="ph ph-flask"></i>Playground</a>
+      <button class="btn primary" id="start-top"><i class="ph ph-broadcast"></i>Open a room</button>
     </div>
   </div>
 </header>
 
 <main>
-  <section class="hero">
-    <div class="wrap hero-grid">
-      <div>
-        <span class="pill up" style="--i:0"><span class="tag">New</span><b>Multi-file projects</b> are here</span>
-        <h1 class="up shortcut" style="--i:1" aria-label="Ctrl plus Alt plus Together"><span class="keycap" aria-hidden="true">Ctrl</span><span class="plus" aria-hidden="true">+</span><span class="keycap" aria-hidden="true">Alt</span><span class="plus" aria-hidden="true">+</span><span class="hi" aria-hidden="true">Together<svg viewBox="0 0 300 12" preserveAspectRatio="none" aria-hidden="true"><path d="M3 8c60-6 190-8 294-3"/></svg></span><span aria-hidden="true">.</span></h1>
-        <p class="sub up" style="--i:2">CodeSync is a live editor that lives in your browser. Open a room, send one link, and build the same project together. The host picks who can edit and who is just along for the ride, and the room server makes it stick.</p>
-        <div class="cta up" style="--i:3">
-          <button class="btn primary lg" data-start><i class="ph ph-sparkle"></i>Start a room</button>
-          <a class="btn lg" href="/play"><i class="ph ph-code"></i>Poke around solo</a>
-        </div>
-        <div class="mini-facts up" style="--i:4">
-          <span><i class="ph ph-translate"></i><b data-count>33</b>&nbsp;languages</span>
-          <span><i class="ph ph-user-circle-dashed"></i>No signup, ever</span>
-          <span><i class="ph ph-heart"></i>Free to host</span>
-        </div>
-      </div>
+  <div class="sheet">
+    <p class="issue"><span>CodeSync &middot; Vol. 1</span><span class="hide-md">33 languages &middot; 3 runtimes &middot; 0 accounts</span><span id="issue-date">Free forever</span></p>
 
-      <div class="stage up" style="--i:2">
-        <div class="demo" id="demo">
-          <div class="demo-bar">
-            <span class="id">room 4kt9-xm2p</span>
-            <span class="stamp ok" id="demo-state">Sample</span>
-            <span class="crew" id="demo-crew"></span>
+    <section class="hero">
+      <h1 id="headline"><span class="ln">Ctrl + Alt +</span><span class="ln sp">Together.</span></h1>
+      <div class="hero-lede">
+        <div>
+          <p><span class="drop">O</span>pen a room, send the link, and the person on the other end is typing in the same file a moment later. No sign-up, no install, no plugin. One of you holds the pen; everyone else reads along, or asks for it. Thirty-three languages compile and run from the same window, and the whole thing is free to host.</p>
+          <div class="hero-actions">
+            <button class="btn primary lg" id="start-hero"><i class="ph ph-broadcast"></i>Open a room</button>
+            <a class="btn lg" href="/play"><i class="ph ph-flask"></i>Try it alone first</a>
           </div>
-          <div class="demo-tabs" id="demo-tabs" role="tablist" aria-label="Sample project files"></div>
-          <div class="demo-code" id="demo-code"></div>
-          <div class="demo-foot">
-            <p class="note" id="demo-note"></p>
-            <div class="controls" id="demo-controls"></div>
-          </div>
+          <form class="hero-actions" id="join-form" autocomplete="off">
+            <label class="sr-only" for="join-id">Room code</label>
+            <input class="field" id="join-id" placeholder="Have a room code?" maxlength="40" />
+            <button class="btn" type="submit">Join</button>
+          </form>
+        </div>
+        <div class="specs">
+          <div class="spec"><span>Languages</span><b>33</b></div>
+          <div class="spec"><span>Runs in browser</span><b>Python, JS, MiniLang</b></div>
+          <div class="spec"><span>Runs remotely</span><b>29 more</b></div>
+          <div class="spec"><span>Roles</span><b>Host / Editor / Viewer</b></div>
+          <div class="spec"><span>Sync</span><b>Yjs CRDT</b></div>
+          <div class="spec"><span>Accounts</span><b>None</b></div>
+          <div class="spec"><span>Price</span><b>Free</b></div>
         </div>
       </div>
-    </div>
-  </section>
+    </section>
+  </div>
 
-  <section class="section" id="roles">
-    <div class="wrap">
-      <h2 class="rise">Everybody gets a cursor.<br />Not everybody gets a pen.</h2>
-      <p class="lede reveal">Shared editors usually hand the same pen to whoever shows up. CodeSync has three roles, and the room server checks each one. A viewer who edits the page in devtools still cannot change what anybody else sees.</p>
-
-      <div class="role-cards">
-        <article class="role-card host reveal">
-          <img class="face" src="/img/face-host.jpg" alt="" width="320" height="320" loading="lazy" />
-          <span class="stamp host">Host</span>
-          <h3>Runs the room</h3>
-          <p>Whoever opens the room. They hold the keys and can hand them over.</p>
-          <ul>
-            <li><i class="ph ph-check-circle"></i>Promotes and demotes anyone</li>
-            <li><i class="ph ph-check-circle"></i>Locks the room or sets a passcode</li>
-            <li><i class="ph ph-check-circle"></i>Removes people who should not be here</li>
-          </ul>
-        </article>
-        <article class="role-card editor reveal">
-          <img class="face" src="/img/face-editor.jpg" alt="" width="320" height="320" loading="lazy" />
-          <span class="stamp editor">Editor</span>
-          <h3>Writes the code</h3>
-          <p>The default for a pairing session. Everything an editor types reaches the room.</p>
-          <ul>
-            <li><i class="ph ph-check-circle"></i>Edits, renames and adds files</li>
-            <li><i class="ph ph-check-circle"></i>Runs the project for everyone</li>
-            <li><i class="ph ph-check-circle"></i>Saves checkpoints</li>
-          </ul>
-        </article>
-        <article class="role-card viewer reveal">
-          <img class="face" src="/img/face-viewer.jpg" alt="" width="320" height="320" loading="lazy" />
-          <span class="stamp viewer">Viewer</span>
-          <h3>Watches along</h3>
-          <p>Perfect for a class, a demo or an interview. They can still try things on their own copy.</p>
-          <ul>
-            <li><i class="ph ph-check-circle"></i>Follows any cursor around the project</li>
-            <li><i class="ph ph-check-circle"></i>Runs the code privately</li>
-            <li><i class="ph ph-hand-waving"></i>Can ask the host for a pen</li>
-          </ul>
-        </article>
+  <div class="sheet">
+    <figure class="fig demo reveal" id="demo">
+      <figcaption class="fig-head">
+        <span class="tag">Fig. 1</span>
+        <span class="tag">A room, mid-sentence</span>
+        <span class="spacer"></span>
+        <span class="stamp host" id="demo-role">Host</span>
+      </figcaption>
+      <div class="demo-tabs" id="demo-tabs" role="tablist" aria-label="Demo files"></div>
+      <div class="demo-code" id="demo-code" aria-live="off"></div>
+      <div class="demo-foot">
+        <p class="note" id="demo-note">Two people, one file.</p>
+        <div class="controls">
+          <button class="btn sm" id="demo-role-btn"><i class="ph ph-arrows-left-right"></i>Swap role</button>
+          <button class="btn sm" id="demo-replay"><i class="ph ph-arrow-counter-clockwise"></i>Replay</button>
+        </div>
       </div>
+    </figure>
+  </div>
 
-      <table class="matrix reveal">
-        <caption>The whole rulebook, in one table</caption>
-        <thead>
-          <tr>
-            <th scope="col">Action</th>
-            <th scope="col"><span class="stamp host">Host</span></th>
-            <th scope="col"><span class="stamp editor">Editor</span></th>
-            <th scope="col"><span class="stamp viewer">Viewer</span></th>
-          </tr>
-        </thead>
-        <tbody id="matrix-body"></tbody>
-      </table>
-      <p class="note-row reveal"><i class="ph ph-key"></i><span>The browser that opens a room keeps a secret host token and hands it over when it joins. The server only stores a hash of it, and the invite link never carries it, so passing the link around cannot pass the room around. Handing over the host role mints a fresh token for the new host.</span></p>
-    </div>
-  </section>
+  <div class="index-line"><div class="sheet"><div class="row" id="ticker"></div></div></div>
 
-  <section class="section" id="projects">
-    <div class="wrap">
-      <h2 class="rise">Real projects, not one lonely file</h2>
-      <p class="lede reveal">Add files, rename them, throw them away. Everyone sees the same tabs the moment you do, and the whole set is handed to the compiler together, so your imports and includes behave.</p>
+  <section class="section" id="pen">
+    <div class="sheet">
+      <div class="section-head">
+        <h2>Somebody<br />holds<br />the pen.</h2>
+        <p class="lede">Most shared editors let everyone type at once and hope for the best. CodeSync has three roles, and the server is the one that enforces them. A viewer's keystrokes are refused on the wire, not hidden in the interface, so a locked file stays locked even if somebody opens the console.</p>
+      </div>
 
       <div class="split">
-        <div class="steps">
-          <div class="step reveal"><span class="ico"><i class="ph ph-file-py"></i></span><div><h3>Python finds its neighbours</h3><p>Files sit next to each other in Pyodide's file system before every run, so <code>import helper</code> just works.</p></div></div>
-          <div class="step reveal"><span class="ico"><i class="ph ph-brackets-curly"></i></span><div><h3>JavaScript can require them</h3><p>The sandboxed worker resolves <code>require("./util.js")</code> against the other files in the room.</p></div></div>
-          <div class="step reveal"><span class="ico"><i class="ph ph-browser"></i></span><div><h3>Web pages carry their own assets</h3><p>An HTML file picks up the CSS and JavaScript it links to, and the preview refreshes while you type.</p></div></div>
-          <div class="step reveal"><span class="ico"><i class="ph ph-file-c"></i></span><div><h3>Headers and classes ride along</h3><p>C, C++ and Java projects go up as a set, so your own headers and helper classes compile.</p></div></div>
-          <div class="step reveal"><span class="ico"><i class="ph ph-clock-counter-clockwise"></i></span><div><h3>Checkpoints keep the whole thing</h3><p>Name a version, then bring the entire project back for the room later. Not just the file you happened to be in.</p></div></div>
+        <table class="matrix reveal">
+          <caption>Fig. 2 &middot; What each role may do</caption>
+          <thead><tr><th scope="col">Action</th><th scope="col">Host</th><th scope="col">Editor</th><th scope="col">Viewer</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">Read the project</th><td class="yes"><b>Yes</b></td><td class="yes"><b>Yes</b></td><td class="yes"><b>Yes</b></td></tr>
+            <tr><th scope="row">Type in a file</th><td class="yes"><b>Yes</b></td><td class="yes"><b>Yes</b></td><td class="no"><b>No</b></td></tr>
+            <tr><th scope="row">Run the project</th><td class="yes"><b>Yes</b></td><td class="yes"><b>Yes</b></td><td class="yes"><b>Yes</b></td></tr>
+            <tr><th scope="row">Add or delete files</th><td class="yes"><b>Yes</b></td><td class="yes"><b>Yes</b></td><td class="no"><b>No</b></td></tr>
+            <tr><th scope="row">Save a checkpoint</th><td class="yes"><b>Yes</b></td><td class="yes"><b>Yes</b></td><td class="no"><b>No</b></td></tr>
+            <tr><th scope="row">Chat</th><td class="yes"><b>Yes</b></td><td class="yes"><b>Yes</b></td><td class="yes"><b>Yes</b></td></tr>
+            <tr><th scope="row">Ask for the pen</th><td class="no"><b>—</b></td><td class="no"><b>—</b></td><td class="ask"><b>Ask</b></td></tr>
+            <tr><th scope="row">Change a role</th><td class="yes"><b>Yes</b></td><td class="no"><b>No</b></td><td class="no"><b>No</b></td></tr>
+            <tr><th scope="row">Lock the room</th><td class="yes"><b>Yes</b></td><td class="no"><b>No</b></td><td class="no"><b>No</b></td></tr>
+            <tr><th scope="row">Hand over the room</th><td class="yes"><b>Yes</b></td><td class="no"><b>No</b></td><td class="no"><b>No</b></td></tr>
+          </tbody>
+        </table>
+
+        <figure class="fig reveal">
+          <figcaption class="fig-head"><span class="tag">Fig. 3</span><span class="tag">The host key</span></figcaption>
+          <img src="/img/fig-key.jpg" alt="A padlock and a key, printed in two inks" loading="lazy" width="900" height="900" />
+          <figcaption class="fig-cap">The host is a random token in one browser's storage. The server keeps only its SHA-256 hash, so it can recognise the host without ever being able to impersonate one. Handing the room over mints a new token and burns the old one.</figcaption>
+        </figure>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="room">
+    <div class="sheet">
+      <div class="section-head">
+        <h2>One room.<br />All of it.</h2>
+        <p class="lede">Everything a session needs is in the same window, because switching tabs is where a pair session goes to die.</p>
+      </div>
+
+      <div class="cols reveal">
+        <div class="col">
+          <h3>Up to twelve files</h3>
+          <p>A real project, not a snippet box. Tabs, renames, drag a file in from disk, and a language picked from the extension.</p>
+          <ul>
+            <li>Monaco, the editor from VS Code</li>
+            <li>Names and cursors of everyone reading</li>
+            <li>Follow a person and go where they go</li>
+            <li>Checkpoints you can name and restore</li>
+          </ul>
         </div>
-        <div class="mini-editor reveal">
-          <div class="mini-tabs" id="mini-tabs" role="tablist" aria-label="Example project"></div>
-          <pre class="mini-code" id="mini-code"></pre>
-          <div class="mini-out"><i class="ph ph-check-circle"></i><span id="mini-out"></span></div>
+        <div class="col">
+          <h3>An honest terminal</h3>
+          <p>One pane. The program prints, the prompt appears, you type the answer into the same place, and it carries on. No second input box.</p>
+          <ul>
+            <li>Python and JavaScript on your own machine</li>
+            <li>29 more on public compiler services</li>
+            <li>Errors land on the line that caused them</li>
+            <li>HTML and CSS get a live preview instead</li>
+          </ul>
+        </div>
+        <div class="col">
+          <h3>Room, not chatroom</h3>
+          <p>Chat, presence and permissions sit in one side panel, so the conversation stays next to the thing you are arguing about.</p>
+          <ul>
+            <li>Chat with roles shown on every message</li>
+            <li>A viewer can ask for the pen in one click</li>
+            <li>Lock the door, or set a passcode</li>
+            <li>Snapshot links that carry the code in the URL</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="slab">
+    <div class="sheet">
+      <div>
+        <h2>No account.<br />No install.<br />No bill.</h2>
+      </div>
+      <div>
+        <p>A room is a link. Open one, paste it into the chat you are already in, and start. Nothing to sign up for, nothing to download, and nothing to pay: the whole stack runs on free tiers, and the source is on GitHub if you would rather run your own.</p>
+        <div class="hero-actions">
+          <button class="btn lg" id="start-slab"><i class="ph ph-broadcast"></i>Open a room</button>
+          <a class="btn lg" href="https://github.com/TEAM-UTOPIANS/CodeSync" target="_blank" rel="noopener"><i class="ph ph-github-logo"></i>Read the source</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="wire">
+    <div class="sheet">
+      <div class="section-head">
+        <h2>What<br />happens<br />on the wire.</h2>
+        <p class="lede">Four steps, and none of them involves a database. A room lives in memory while people are in it, and the code lives in every browser that has it open.</p>
+      </div>
+
+      <div class="split">
+        <div class="steps reveal">
+          <div class="step"><span class="n">1</span><div><h3>You open a room</h3><p>The first browser to arrive presents a random token and becomes host. The server stores the hash of that token and nothing else.</p></div></div>
+          <div class="step"><span class="n">2</span><div><h3>Everyone edits one document</h3><p>Every file is a Yjs text. Edits merge by themselves, in any order, so two people typing on the same line never destroy each other's work.</p></div></div>
+          <div class="step"><span class="n">3</span><div><h3>The server checks every write</h3><p>An update from a viewer is dropped before it touches the document. Roles are a rule on the server, not a disabled button in the browser.</p></div></div>
+          <div class="step"><span class="n">4</span><div><h3>Run happens where it can</h3><p>Python and JavaScript run in a worker on your own machine. The other languages go out to a public compiler service and come back with output, or with the line that broke.</p></div></div>
+        </div>
+
+        <div style="display:grid;gap:18px">
+          <figure class="fig reveal">
+            <figcaption class="fig-head"><span class="tag">Fig. 4</span><span class="tag">Two terminals, one program</span></figcaption>
+            <img src="/img/fig-terminals.jpg" alt="Retro terminals printed in two inks" loading="lazy" width="900" height="900" />
+            <figcaption class="fig-cap">Interactive input without cross-origin isolation: the worker stops at a read, the terminal asks, and the program is replayed with the answer appended. Output already on screen is not printed twice.</figcaption>
+          </figure>
+          <figure class="fig reveal">
+            <figcaption class="fig-head"><span class="tag">Fig. 5</span><span class="tag">Twelve files, one document</span></figcaption>
+            <img src="/img/fig-files.jpg" alt="Stacked paper files printed in two inks" loading="lazy" width="900" height="900" />
+            <figcaption class="fig-cap">One Yjs map of texts, one array for tab order, one Monaco model per file. A checkpoint is a copy of all of them under a name you chose.</figcaption>
+          </figure>
         </div>
       </div>
     </div>
   </section>
 
   <section class="section" id="languages">
-    <div class="wrap">
-      <div class="head-row">
-        <div>
-          <h2 class="rise"><span data-count>33</span> languages, one tab</h2>
-          <p class="lede reveal">Python, JavaScript, MiniLang and web pages run right inside your browser and never leave it. The rest are built by public compiler services through a small serverless function, with a spare service standing by.</p>
-        </div>
-        <div class="filters reveal" id="filters" role="group" aria-label="Filter languages"></div>
+    <div class="sheet">
+      <div class="section-head">
+        <h2>Thirty-three<br />languages.</h2>
+        <p class="lede">Each one arrives with a small program that already reads a line and greets you, so the first run is never a blank page. Pick a group, or search the whole list from inside the editor.</p>
       </div>
+      <div class="filters" id="filters" role="group" aria-label="Language groups" style="margin-top:22px"></div>
       <div class="wall" id="wall"></div>
     </div>
   </section>
 
-  <section class="section how" id="how">
-    <div class="wrap">
-      <h2 class="rise">Three little pieces</h2>
-      <p class="lede reveal">Nothing here stores your code. A room lives in memory while people are in it, and every browser keeps its own copy.</p>
-      <div class="how-grid">
-        <div class="how-steps" id="how-steps">
-          <article class="how-step" data-step="0">
-            <span class="num">Your browser</span>
-            <h3>The editor itself</h3>
-            <p>Monaco, the editor from VS Code, on top of a conflict-free document. Two people can type in the same line and it still lands where you expect. Python and JavaScript execute here too, so most runs never touch a network.</p>
-          </article>
-          <article class="how-step" data-step="1">
-            <span class="num">Room server</span>
-            <h3>A small Socket.IO relay</h3>
-            <p>It passes edits between everyone and owns the rules: roles, requests, the lock, the passcode, removals and checkpoints. It refuses a viewer's keystroke before it ever reaches the rest of the room, and forgets the room once the last person leaves.</p>
-          </article>
-          <article class="how-step" data-step="2">
-            <span class="num">Compilers</span>
-            <h3>Public build services</h3>
-            <p>A serverless function checks and rate limits the request, then asks Compiler Explorer or Wandbox to build and run the project. No keys, no accounts, and a second service takes over when the first one is having a bad day.</p>
-          </article>
-        </div>
-        <div class="how-visual">
-          <div class="how-card" id="how-card">
-            <div class="how-scene" data-scene="0">
-              <div class="scene-head"><span class="dot ok"></span><span>main.py</span></div>
-              <div class="scene-body mono">
-                <span class="l"><em>def</em> greet(name):</span>
-                <span class="l">    <em>return</em> <b>"hi "</b> + name</span>
-                <span class="l"></span>
-                <span class="l">print(greet(<b>"world"</b>))</span>
-              </div>
-              <div class="scene-foot"><span class="stamp editor">Editor</span><span class="stamp host">Host</span></div>
-            </div>
-            <div class="how-scene" data-scene="1">
-              <div class="scene-head"><span class="dot ok"></span><span>room server</span></div>
-              <div class="scene-body relay">
-                <div class="relay-row ok"><i class="ph ph-arrow-right"></i><span>edit from an editor</span><i class="ph ph-check-circle"></i></div>
-                <div class="relay-row ok"><i class="ph ph-arrow-right"></i><span>edit from the host</span><i class="ph ph-check-circle"></i></div>
-                <div class="relay-row no"><i class="ph ph-arrow-right"></i><span>edit from a viewer</span><i class="ph ph-x-circle"></i></div>
-              </div>
-              <div class="scene-foot"><span class="stamp ok">Relayed</span><span class="stamp bad">Refused</span></div>
-            </div>
-            <div class="how-scene" data-scene="2">
-              <div class="scene-head"><span class="dot ok"></span><span>build</span></div>
-              <div class="scene-body build">
-                <div class="build-row"><span>Compiler Explorer</span><span class="ms">31 ms</span></div>
-                <div class="build-row"><span>Wandbox</span><span class="ms">standby</span></div>
-                <div class="build-out mono">area: 12</div>
-              </div>
-              <div class="scene-foot"><span class="stamp ok">Finished</span></div>
-            </div>
-          </div>
-          <img class="how-art" src="/img/hero-art.jpg" alt="Illustration of three connected editor windows with small characters sitting on them" width="1000" height="1000" loading="lazy" />
-        </div>
+  <section class="section" id="crew">
+    <div class="sheet">
+      <div class="section-head">
+        <h2>Built by<br />three people.</h2>
+        <p class="lede">CodeSync is a student project by Team Utopians: a semester spent on the unglamorous parts, which turn out to be conflict resolution, permissions and the terminal.</p>
       </div>
-    </div>
-  </section>
-
-  <section class="section" id="team">
-    <div class="wrap">
-      <h2 class="rise">Made by three people</h2>
-      <p class="lede reveal">CodeSync is an open source project by Team Utopians. The editor, the room server, the language layer and the little MiniLang interpreter all live in one repository.</p>
-      <div class="crew-cards" id="crew-cards"></div>
-      <p class="note-row reveal"><i class="ph ph-github-logo"></i><span>Everything is on GitHub at <a href="https://github.com/TEAM-UTOPIANS/CodeSync">TEAM-UTOPIANS/CodeSync</a>. Issues and pull requests are welcome.</span></p>
+      <div class="byline reveal">
+        <div><b>Mayank Karki</b><span>Architecture &middot; Sync &middot; Runtimes</span></div>
+        <div><b>Nitin Kandpal</b><span>Backend &middot; Rooms &middot; Roles</span></div>
+        <div><b>Swarit Kumar</b><span>Interface &middot; Design &middot; Docs</span></div>
+      </div>
     </div>
   </section>
 </main>
 
-<section class="close-band">
-  <div>
-    <h2>Open a room. Send one link.</h2>
-    <p>No account, no install, nothing to set up. Whoever opens the link is in your project a second later.</p>
-  </div>
-  <button class="btn lg" data-start><i class="ph ph-sparkle"></i>Start a room</button>
-</section>
-
-<footer class="foot">
-  <div class="wrap">
-    <span>CodeSync by <b>Mayank Karki</b>, <b>Nitin Kandpal</b> and <b>Swarit Kumar</b>.</span>
-    <span>Rooms vanish when the last person leaves. Your copy stays with you.</span>
+<div class="rule thick"></div>
+<footer class="colophon">
+  <div class="sheet">
+    <span>CodeSync &middot; Team Utopians &middot; Set in Big Shoulders and JetBrains Mono</span>
+    <span><a href="https://github.com/TEAM-UTOPIANS/CodeSync" target="_blank" rel="noopener">Source on GitHub</a> &middot; <a href="/play">Playground</a></span>
   </div>
 </footer>
 
-<dialog class="card" id="join-dialog">
-  <form method="dialog" id="join-form" autocomplete="off">
-    <div><h2>Join a room</h2><p>Paste the invite link, or just the room code from it.</p></div>
-    <input class="field" id="join-code" placeholder="https://.../r/abcd-efgh-jkmn" spellcheck="false" aria-label="Invite link or room code" />
-    <div class="err" id="join-err" role="alert"></div>
-    <button class="btn primary lg" type="submit">Join room</button>
-  </form>
-</dialog>
-
+<div class="toast" id="toast" role="status"></div>
 <script type="module" src="/js/landing.js"></script>
 </body>
 </html>

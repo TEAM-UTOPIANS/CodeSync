@@ -8,10 +8,11 @@
   <meta name="robots" content="noindex" />
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   <link rel="preconnect" href="https://fonts.googleapis.com" /><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Gabarito:wght@500;600;700;800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@phosphor-icons/web@2.1.2/src/regular/style.css" />
   <link rel="stylesheet" href="/css/style.css" />
-  <script>try{const t=localStorage.getItem("codesync:theme");let id=({dark:"midnight",light:"cream",signal:"midnight",enamel:"cream",graphite:"midnight",paper:"cream",nightmail:"ocean",cobalt:"ocean",filament:"midnight",loco:"midnight"})[t]||t;if(!["cream","midnight","bubblegum","ocean"].includes(id))id=matchMedia("(prefers-color-scheme: dark)").matches?"midnight":"cream";document.documentElement.dataset.theme=id}catch{document.documentElement.dataset.theme="cream"}</script>
+  <script>/* Paint the right ground before the first frame, so the page never flashes. */
+  try{const t=localStorage.getItem("codesync:theme");const legacy={cream:"newsprint",light:"newsprint",paper:"newsprint",enamel:"newsprint",bubblegum:"newsprint",dark:"ink",midnight:"ink",graphite:"ink",filament:"ink",loco:"ink",signal:"ink",ocean:"phosphor",nightmail:"phosphor",cobalt:"phosphor"};let id=legacy[t]||t;if(!["newsprint","phosphor","amber","ink"].includes(id))id=matchMedia("(prefers-color-scheme: dark)").matches?"ink":"newsprint";document.documentElement.dataset.theme=id}catch{document.documentElement.dataset.theme="newsprint"}</script>
   <script src="/config.js"></script>
 </head>
 <body>
@@ -19,10 +20,10 @@
   <header class="top">
     <a class="wordmark" href="/" title="CodeSync home" aria-label="CodeSync home">
       <svg class="mark" viewBox="0 0 32 32" aria-hidden="true">
-        <rect x="3" y="6" width="26" height="20" rx="8" fill="var(--accent)"/>
-        <circle class="eye" cx="12" cy="15" r="2.6" fill="var(--accent-ink)"/>
-        <circle class="eye" cx="20" cy="15" r="2.6" fill="var(--accent-ink)"/>
-        <path d="M13.5 20.5c1.6 1.2 3.4 1.2 5 0" stroke="var(--accent-ink)" stroke-width="1.8" stroke-linecap="round" fill="none"/>
+        <rect x="2" y="2" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2.5"/>
+        <rect x="7" y="8" width="5" height="16" fill="var(--spot)"/>
+        <rect x="16" y="8" width="9" height="5" fill="currentColor"/>
+        <rect x="16" y="19" width="9" height="5" fill="currentColor"/>
       </svg>
     </a>
     <span class="room-id" id="room-id" title="Room"><i class="ph ph-broadcast"></i><span id="room-name"></span></span>
@@ -38,7 +39,7 @@
     <button class="btn" id="share-btn" aria-haspopup="menu"><i class="ph ph-share-network"></i><span class="hide-md">Share</span></button>
     <button class="btn icon quiet hide-sm" id="palette-btn" title="Command palette" aria-label="Command palette"><i class="ph ph-command"></i></button>
     <button class="btn icon quiet" id="settings-btn" title="Editor settings" aria-label="Editor settings" aria-haspopup="menu"><i class="ph ph-sliders-horizontal"></i></button>
-    <button class="btn icon quiet" id="theme-btn" title="Next theme" aria-label="Next theme"><i class="ph ph-palette"></i></button>
+    <button class="btn icon quiet" id="theme-btn" title="Next theme" aria-label="Next theme"><i class="ph ph-drop-half"></i></button>
     <button class="btn icon quiet" id="side-toggle" title="Toggle the side panel" aria-label="Toggle the side panel"><i class="ph ph-sidebar-simple"></i></button>
   </header>
 
@@ -60,7 +61,7 @@
       <div class="grip" id="grip" role="separator" aria-orientation="horizontal" aria-label="Resize the console"></div>
       <div class="console">
         <div class="tabs" role="tablist">
-          <button class="tab" role="tab" id="tab-terminal" aria-selected="true"><i class="ph ph-terminal"></i>Terminal</button>
+          <button class="tab" role="tab" id="tab-terminal" aria-selected="true"><i class="ph ph-terminal-window"></i>Terminal</button>
           <button class="tab" role="tab" id="tab-preview" aria-selected="false" hidden><i class="ph ph-browser"></i>Preview</button>
           <span class="spacer"></span>
           <span class="verdict" id="verdict"></span>
@@ -150,7 +151,7 @@
   <label>Word wrap <input type="checkbox" id="set-wrap" /></label>
   <label>Minimap <input type="checkbox" id="set-minimap" /></label>
   <label>Font ligatures <input type="checkbox" id="set-ligatures" /></label>
-  <label>Theme <select id="set-theme"></select></label>
+  <label>Ink <select id="set-theme"></select></label>
   <hr />
   <button id="m-about" role="menuitem"><i class="ph ph-info"></i>About CodeSync</button>
 </div>
@@ -178,7 +179,7 @@
 
 <dialog class="card" id="about">
   <h2>CodeSync</h2>
-  <p>A live code editor for the browser: rooms with real permissions, multi-file projects and 33 languages. Free and open source.</p>
+  <p>A live code editor for the browser: rooms with real permissions, multi-file projects and 33 languages. Free, and open source.</p>
   <div class="crew-list" id="about-crew"></div>
   <div style="display:grid;gap:10px">
     <a class="btn" href="https://github.com/TEAM-UTOPIANS/CodeSync" target="_blank" rel="noopener"><i class="ph ph-github-logo"></i>Source on GitHub</a>
